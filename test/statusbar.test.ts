@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { JobRecord } from "../src/jobs.ts";
-import { clip, elapsed, FRAMES, plain, renderStatus, type RenderOptions } from "../src/statusbar.ts";
+import { activity, clip, elapsed, FRAMES, plain, renderStatus, tokens, type RenderOptions } from "../src/statusbar.ts";
+import type { Progress } from "../src/types.ts";
 
+const progress = (o: Partial<Progress> = {}): Progress => ({ turns: 0, tools: 0, tokens: 0, active: [], text: "", ...o });
 const rec = (id: string, state: JobRecord["state"], o: Partial<JobRecord> = {}): JobRecord => ({
   id,
   agent: `agent-${id}`,
@@ -13,7 +15,7 @@ const rec = (id: string, state: JobRecord["state"], o: Partial<JobRecord> = {}):
   ...o,
 });
 const opts = (o: Partial<RenderOptions> = {}): RenderOptions => ({
-  now: 15_200,
+  now: 13_300,
   frame: 2,
   width: 200,
   style: plain,
@@ -21,6 +23,8 @@ const opts = (o: Partial<RenderOptions> = {}): RenderOptions => ({
   ...o,
 });
 const done = (text = "all done") => ({ status: "completed" as const, text, truncated: false });
+const tag = (n: string) => (s: string) => `<${n}>${s}</${n}>`;
+const tagged = { accent: tag("a"), dim: tag("d"), success: tag("s"), warn: tag("w"), error: tag("e"), bold: tag("b") };
 
 describe("renderStatus", () => {
   test("nothing live, queued or unread clears the widget", () => {
@@ -28,32 +32,79 @@ describe("renderStatus", () => {
     expect(renderStatus([rec("1", "completed", { delivered: true, endedAt: 2000 }), rec("2", "interrupted")], opts())).toBeUndefined();
   });
 
-  test("draws a tree: spinner and elapsed time for running, an activity line, a tick for finished", () => {
+  test("running rows show turns, tool uses, tokens with context use, elapsed time and what the agent is doing", () => {
     const lines = renderStatus(
       [
-        rec("1", "running", { activity: "searching the\nweb" }),
-        rec("2", "completed", { endedAt: 4100, result: done() }),
-        rec("3", "failed", {
-          endedAt: 2000,
-          result: { status: "failed", text: "", truncated: false, failure: { kind: "exit", message: "Pi exited" } },
+        rec("1", "running", {
+          contextWindow: 54_000,
+          progress: progress({ turns: 5, tools: 5, tokens: 33_800, active: ["edit", "edit"] }),
         }),
-        rec("4", "cancelled", { endedAt: 3000 }),
+        rec("2", "running", { contextWindow: 150_000, progress: progress({ turns: 3, tools: 1, tokens: 12_400, active: ["grep"] }) }),
+        rec("q1", "queued"),
+        rec("q2", "queued"),
       ],
       opts(),
     );
     expect(lines).toEqual([
       "● Agents",
-      `├─ ${FRAMES[2]} agent-1  task 1 · 14.2s`,
-      "│      ⎿  searching the web",
-      "├─ ✓ agent-2  task 2 · 3.1s",
-      "├─ ✗ agent-3  task 3 · 1.0s error: Pi exited",
-      "└─ ■ agent-4  task 4 · 2.0s",
+      `├─ ${FRAMES[2]} agent-1  task 1 · ↻5 · 5 tool uses · 33.8k token (63%) · 12.3s`,
+      "│      ⎿  editing 2 files…",
+      `├─ ${FRAMES[2]} agent-2  task 2 · ↻3 · 1 tool use · 12.4k token (8%) · 12.3s`,
+      "│      ⎿  searching…",
+      "└─ 2 queued",
     ]);
   });
 
-  test("the last row closes the tree and its activity line has no rail", () => {
-    const lines = renderStatus([rec("1", "running", { activity: "thinking" })], opts())!;
-    expect(lines).toEqual(["● Agents", `└─ ${FRAMES[2]} agent-1  task 1 · 14.2s`, "       ⎿  thinking"]);
+  test("a row without progress yet shows only the time and 'thinking…'", () => {
+    expect(renderStatus([rec("1", "running")], opts())).toEqual([
+      "● Agents",
+      `└─ ${FRAMES[2]} agent-1  task 1 · 12.3s`,
+      "       ⎿  thinking…",
+    ]);
+  });
+
+  test("finished rows keep their stats but drop the context percentage and the activity line", () => {
+    const lines = renderStatus(
+      [
+        rec("1", "completed", {
+          endedAt: 4100,
+          contextWindow: 1000,
+          progress: progress({ turns: 4, tools: 7, tokens: 900 }),
+          result: done(),
+        }),
+        rec("2", "failed", {
+          endedAt: 2000,
+          result: { status: "failed", text: "", truncated: false, failure: { kind: "exit", message: "Pi exited" } },
+        }),
+        rec("3", "cancelled", { endedAt: 3000 }),
+      ],
+      opts(),
+    );
+    expect(lines).toEqual([
+      "○ Agents",
+      "├─ ✓ agent-1  task 1 · ↻4 · 7 tool uses · 900 token · 3.1s",
+      "├─ ✗ agent-2  task 2 · 1.0s error: Pi exited",
+      "└─ ■ agent-3  task 3 · 2.0s",
+    ]);
+  });
+
+  test("context use is dim below 70%, warning from 70%, error from 85%", () => {
+    const at = (t: number) =>
+      renderStatus([rec("1", "running", { contextWindow: 100, progress: progress({ tokens: t }) })], opts({ style: tagged }))![1]!;
+    expect(at(69)).toContain("<d>69%</d>");
+    expect(at(70)).toContain("<w>70%</w>");
+    expect(at(85)).toContain("<e>85%</e>");
+  });
+
+  test("no context percentage without a known context window", () => {
+    const line = renderStatus([rec("1", "running", { progress: progress({ tokens: 5000 }) })], opts())![1]!;
+    expect(line).toContain("5.0k token ·");
+    expect(line).not.toContain("%");
+  });
+
+  test("the last row closes the tree with no rail on its activity line", () => {
+    const lines = renderStatus([rec("1", "running", { progress: progress({ active: ["bash"] }) })], opts())!;
+    expect(lines.at(-1)).toBe("       ⎿  running…");
   });
 
   test("the spinner advances with the frame", () => {
@@ -66,31 +117,35 @@ describe("renderStatus", () => {
     const records = [...[1, 2, 3, 4, 5, 6, 7].map((i) => rec(String(i), "running")), rec("q1", "queued"), rec("q2", "queued")];
     const lines = renderStatus(records, opts())!;
     expect(lines.filter((l) => l.includes("agent-"))).toHaveLength(5);
-    expect(lines.at(-1)).toBe("└─ ◦ +2 more, 2 queued");
+    expect(lines.at(-1)).toBe("└─ +2 more, 2 queued");
   });
 
   test("only queued jobs still show a summary row", () => {
-    expect(renderStatus([rec("1", "queued")], opts())).toEqual(["● Agents", "└─ ◦ 1 queued"]);
-  });
-
-  test("only finished jobs use the hollow heading", () => {
-    expect(renderStatus([rec("1", "completed", { endedAt: 2000, result: done() })], opts())![0]).toBe("○ Agents");
+    expect(renderStatus([rec("1", "queued")], opts())).toEqual(["● Agents", "└─ 1 queued"]);
   });
 
   test("every line is fitted to the width", () => {
-    const lines = renderStatus([rec("1", "running", { activity: "x".repeat(300) })], opts({ width: 20 }))!;
+    const lines = renderStatus([rec("1", "running", { progress: progress({ text: "x".repeat(300) }) })], opts({ width: 20 }))!;
     expect(lines.every((l) => l.length <= 20)).toBe(true);
-  });
-
-  test("styles are applied through the style hooks", () => {
-    const tag = (n: string) => (s: string) => `<${n}>${s}</${n}>`;
-    const style = { accent: tag("a"), dim: tag("d"), success: tag("s"), error: tag("e"), bold: tag("b") };
-    const lines = renderStatus([rec("1", "completed", { endedAt: 2000, result: done() })], opts({ style }))!;
-    expect(lines[1]).toContain("<s>✓</s> <b>agent-1</b>");
   });
 });
 
-describe("clip and elapsed", () => {
+describe("activity", () => {
+  test("names the tools running now, grouping repeats", () => {
+    expect(activity(progress({ active: ["read"] }))).toBe("reading…");
+    expect(activity(progress({ active: ["read", "grep", "read"] }))).toBe("reading 2 files, searching…");
+    expect(activity(progress({ active: ["web_search", "mystery"] }))).toBe("searching the web, using mystery…");
+  });
+  test("with no tool running it shows the start of the latest message, else thinking", () => {
+    expect(activity(progress({ text: "\n  Found the bug in auth.ts\nmore" }))).toBe("Found the bug in auth.ts…");
+    expect(activity(progress({ text: "short" }))).toBe("short");
+    expect(activity(progress({ text: "x".repeat(200) })).endsWith("…")).toBe(true);
+    expect(activity(progress())).toBe("thinking…");
+    expect(activity(undefined)).toBe("thinking…");
+  });
+});
+
+describe("formatting", () => {
   test("clip collapses whitespace and ends with an ellipsis at the limit", () => {
     expect(clip("a\n\n  b\tc", 80)).toBe("a b c");
     const out = clip("x".repeat(200), 80);
@@ -99,7 +154,11 @@ describe("clip and elapsed", () => {
   });
   test("elapsed switches to minutes", () => {
     expect(elapsed(14_200)).toBe("14.2s");
-    expect(elapsed(125_000)).toBe("2m 05s");
+    expect(elapsed(137_000)).toBe("2m17s");
+    expect(elapsed(125_000)).toBe("2m05s");
     expect(elapsed(-5)).toBe("0.0s");
+  });
+  test("tokens abbreviates thousands and millions", () => {
+    expect([tokens(950), tokens(33_800), tokens(1_250_000)]).toEqual(["950", "33.8k", "1.3M"]);
   });
 });

@@ -94,7 +94,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
         pi.appendEntry(JOB_ENTRY, { id, agent, task, state: s, createdAt, endedAt, delivered });
         widget.update();
       },
-      onActivity: widget.update,
+      onProgress: widget.update,
     });
     return (state = { jobs, inbox });
   }
@@ -133,7 +133,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
       case "agents":
         return text(await agentList());
       case "start": {
-        const { discoverAgents, resolveAgent } = await agentsModule();
+        const { discoverAgents, resolveAgent, splitModel } = await agentsModule();
         const { agents } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
         const def = resolveAgent(agents, p.agent!);
         let cwd = c.cwd;
@@ -173,6 +173,8 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           }
           throw e;
         }
+        const ref = def.model ? splitModel(def.model) : undefined;
+        rec.contextWindow = (ref ? c.modelRegistry.find(ref.provider, ref.id) : c.model)?.contextWindow;
         if (ws) {
           workspaces.set(rec.id, ws);
           rec.note = `worktree kept: diff ${rec.id}, then apply or discard ${rec.id}`;

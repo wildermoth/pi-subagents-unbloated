@@ -36,7 +36,7 @@ let live: ReturnType<typeof createWidget> | undefined;
 afterEach(() => live?.dispose());
 
 test("mounts once, repaints on update, and clears when nothing is left", () => {
-  let jobs = [rec("running", { activity: "hello" })];
+  let jobs = [rec("running", { progress: { turns: 1, tools: 0, tokens: 0, active: [], text: "hello" } })];
   const f = fakeUi();
   live = createWidget(() => jobs);
   live.bind(f.ui);

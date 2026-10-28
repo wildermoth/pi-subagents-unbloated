@@ -41,6 +41,7 @@ export function createWidget(records: () => readonly JobRecord[]) {
               accent: (s) => theme.fg("accent", s),
               dim: (s) => theme.fg("dim", s),
               success: (s) => theme.fg("success", s),
+              warn: (s) => theme.fg("warning", s),
               error: (s) => theme.fg("error", s),
               bold: (s) => theme.bold(s),
             };

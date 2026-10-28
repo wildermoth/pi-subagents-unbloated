@@ -60,6 +60,7 @@ export function harness(branch: unknown[] = [], failSend = { on: false }) {
   const ctx = (cwd: string, trusted = true) => ({
     hasUI: true,
     mode: "tui",
+    modelRegistry: { find: () => undefined },
     ui,
     cwd,
     isProjectTrusted: () => trusted,
