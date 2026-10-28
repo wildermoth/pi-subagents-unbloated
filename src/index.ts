@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Inbox } from "./inbox.ts";
+import { realpath } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { JobRecord, Jobs } from "./jobs.ts";
 import type { Workspace } from "./isolation.ts";
@@ -139,7 +140,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
             const iso = await isolationModule();
             const root = await iso.repoRootOf(c.cwd);
             ws = await iso.create({ repoRoot: root, id: crypto.randomUUID().slice(0, 12) });
-            cwd = join(ws.path, relative(root, c.cwd));
+            cwd = join(ws.path, relative(root, await realpath(c.cwd))); // root is canonical, so cwd must be too (macOS /var, Windows 8.3 names)
           }
           let rec: JobRecord;
           try {
