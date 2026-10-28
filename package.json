@@ -19,17 +19,22 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "bench": "bun bench/startup.ts && bun bench/delegation.ts && bun bench/context.ts"
+    "bench": "bun bench/startup.ts && bun bench/delegation.ts && bun bench/context.ts",
+    "lint": "eslint ."
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=1.4.0 <2"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^5",
-    "@earendil-works/pi-coding-agent": "1.4.0",
     "@earendil-works/pi-ai": "^1.4.0",
-    "typebox": "^1.4.3"
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@eslint/js": "^10.0.1",
+    "@types/bun": "latest",
+    "eslint": "^10.13.0",
+    "prettier": "^3.9.10",
+    "typebox": "^1.4.3",
+    "typescript": "^5",
+    "typescript-eslint": "^8.72.1"
   },
   "files": [
     "src",
