@@ -94,7 +94,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
         pi.appendEntry(JOB_ENTRY, { id, agent, task, state: s, createdAt, endedAt, delivered });
         widget.update();
       },
-      onProgress: widget.update,
+      onProgress: widget.touch,
     });
     return (state = { jobs, inbox });
   }

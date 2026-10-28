@@ -85,6 +85,10 @@ export function createWidget(records: () => readonly JobRecord[]) {
       }
       update();
     },
+    /** Progress arrived. While something runs the spinner tick repaints within 100ms, so only start the widget if it is not running yet. */
+    touch: (): void => {
+      if (!timer) update();
+    },
     update,
     dispose(): void {
       stop();

@@ -70,6 +70,15 @@ async function onPrompt(id: string) {
     case "tools": // two overlapping tool calls, then an answer
       out({ type: "agent_start" });
       out({ type: "turn_start" });
+      out({
+        type: "message_update",
+        message: {},
+        assistantMessageEvent: {
+          type: "toolcall_start",
+          contentIndex: 0,
+          partial: { role: "assistant", content: [{ type: "toolCall", id: "t1", name: "read", arguments: {} }] },
+        },
+      });
       out({ type: "tool_execution_start", toolCallId: "t1", toolName: "read", args: {} });
       out({ type: "tool_execution_start", toolCallId: "t2", toolName: "grep", args: {} });
       out({ type: "tool_execution_end", toolCallId: "t1", toolName: "read", result: {}, isError: false });
