@@ -214,11 +214,20 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
         if (!conn || !proc) return;
         if (wantAbort) void conn.send({ type: "abort" }, graceMs).catch(() => {}); // best effort; escalation below guarantees exit
         conn.closeInput();
-        if (await waitExit(graceMs)) return;
-        signalTree(proc, "SIGTERM");
-        if (await waitExit(graceMs)) return;
-        signalTree(proc, "SIGKILL");
-        await waitExit(KILL_WAIT_MS);
+        if (!(await waitExit(graceMs))) {
+          signalTree(proc, "SIGTERM");
+          if (!(await waitExit(graceMs))) {
+            signalTree(proc, "SIGKILL");
+            await waitExit(KILL_WAIT_MS);
+          }
+        }
+        // A leader exiting does not imply its process group has exited too.
+        if (POSIX && proc.pid) {
+          try { process.kill(-proc.pid, 0); } catch { return; }
+          signalTree(proc, "SIGTERM");
+          await new Promise((r) => setTimeout(r, graceMs));
+          signalTree(proc, "SIGKILL");
+        }
       };
 
       // Single terminal transition; the first caller wins.
@@ -231,6 +240,7 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
           try {
             await terminate();
           } finally {
+            if (proc) live.delete(proc);
             resolveDone(r);
           }
         })();
@@ -278,7 +288,6 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
       };
 
       const onExit = (info: ExitInfo): void => {
-        if (proc) live.delete(proc);
         if (info.spawnError) return fail("launch", `cannot spawn Pi: ${info.spawnError.message}`);
         const tail = conn?.stderrTail().trim().slice(-500);
         const how = info.signal ? `signal ${info.signal}` : `code ${info.code}`;
@@ -325,7 +334,6 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
         onProtocolError: (e) => fail("protocol", e.message),
         onExit,
       });
-      void conn.exited.then(() => { live.delete(proc!); });
 
       runTimer = setTimeout(() => fail("timeout", `run did not settle within ${spec.timeoutMs}ms`), spec.timeoutMs);
       // Listeners are installed above, so no event can be missed before the prompt goes out.

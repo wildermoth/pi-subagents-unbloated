@@ -1,5 +1,6 @@
 // Scriptable fake Pi RPC child. Usage: bun test/fake-pi.ts --fake=<mode> [--fake-pid-file=<path>] [--delay=<ms>] ...
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 
 const argv = process.argv.slice(2);
 const opt = (k: string) => argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3);
@@ -43,6 +44,16 @@ async function onPrompt(id: string) {
   }
   respond(id, "prompt", { disposition: "started" });
   switch (mode) {
+    case "descendant":
+    case "descendant-hang": {
+      const pid = opt("descendant-pid")!;
+      const exited = opt("descendant-exit")!;
+      const code = `const fs = require("node:fs"); process.on("SIGTERM", () => { fs.writeFileSync(${JSON.stringify(exited)}, "terminated"); process.exit(0); }); fs.writeFileSync(${JSON.stringify(pid)}, String(process.pid)); setInterval(() => {}, 1000);`;
+      spawn(process.execPath, ["-e", code], { stdio: "ignore" }).unref();
+      while (!existsSync(pid)) await sleep(1);
+      if (mode === "descendant") await finish("spawned descendant");
+      return;
+    }
     case "exit-after-ack":
       process.stderr.write("crash after ack\n");
       process.exit(4);

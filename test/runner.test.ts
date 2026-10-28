@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildArgs, createRunner, resolvePiCommand } from "../src/runner.ts";
@@ -230,6 +230,24 @@ describe("cancel and steer", () => {
     expect((await child.done).status).toBe("cancelled");
     expect(alive(p)).toBe(false);
     expect(Date.now() - t).toBeLessThan(2000);
+  });
+  test.skipIf(process.platform === "win32")("descendants are terminated after their leader exits on stdin EOF", async () => {
+    for (const mode of ["descendant", "descendant-hang"]) {
+      const descendantPid = join(dir, `descendant-${n}`);
+      const descendantExit = `${descendantPid}-exit`;
+      const { child } = run(mode, {}, {}, [`--descendant-pid=${descendantPid}`, `--descendant-exit=${descendantExit}`]);
+      try {
+        for (let i = 0; i < 1000 && !existsSync(descendantPid); i++) await Bun.sleep(2);
+        expect(existsSync(descendantPid)).toBe(true);
+        if (mode === "descendant-hang") await child.cancel();
+        expect((await child.done).status).toBe(mode === "descendant" ? "completed" : "cancelled");
+        expect(readFileSync(descendantExit, "utf8")).toBe("terminated");
+      } finally {
+        if (existsSync(descendantPid)) {
+          try { process.kill(Number(readFileSync(descendantPid, "utf8")), "SIGKILL"); } catch { /* already gone */ }
+        }
+      }
+    }
   });
   test("timeout also force-kills a stubborn child", async () => {
     const { child, pid } = run("stubborn", { timeoutMs: 300 });
