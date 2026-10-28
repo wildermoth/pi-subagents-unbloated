@@ -165,7 +165,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
               systemPrompt: def.prompt,
               tools: def.tools,
               model: def.model ?? (c.model ? `${c.model.provider}/${c.model.id}` : undefined),
-              thinking: c.thinkingLevel,
+              thinking: def.thinking ?? c.thinkingLevel,
               trusted: c.isProjectTrusted(),
               timeoutMs: TIMEOUT_MS,
               launchTimeoutMs: LAUNCH_TIMEOUT_MS,
@@ -262,6 +262,17 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
         return text(inbox.size ? inbox.format(inbox.drain()) : `no finished jobs pending. ${WAIT_HINT}`);
     }
   }
+
+  pi.registerCommand("subagent-model", {
+    description: "Choose an agent's model and thinking level",
+    handler: async (_args, c) => {
+      const { discoverAgents } = await agentsModule();
+      const { agents } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
+      if (!agents.size) return c.ui.notify("no agents defined", "info");
+      const { configureAgent } = await import("./agent-config.ts");
+      await configureAgent(c, [...agents.values()]);
+    },
+  });
 
   pi.registerCommand("subagents", {
     description: "Show subagent jobs",
