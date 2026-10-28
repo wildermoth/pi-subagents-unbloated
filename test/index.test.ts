@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { rm } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { harness, ok, project as mkProject, run, started, tick, txt } from "./helpers/harness.ts";
 
 let dirs: string[] = [];
@@ -131,6 +132,16 @@ test("agent names and blurbs reach the system prompt once per session, only when
   const again = event(["subagent"]);
   await h.handlers.before_agent_start!(again, h.ctx(cwd));
   expect(again.systemPromptOptions.sections.subagents).toBe(on.systemPromptOptions.sections.subagents);
+});
+
+test("inprocess agents are marked on the run spec, others are not", async () => {
+  const cwd = await project();
+  await writeFile(join(cwd, ".pi", "agents", "fast.md"), "---\nname: fast\ndescription: Quick\ninprocess: true\n---\nGo.");
+  const h = harness();
+  await run(h, cwd, { action: "start", agent: "fast", task: "x" });
+  await run(h, cwd, { action: "start", agent: "scout", task: "y" });
+  await started(h, 2);
+  expect(h.ctls.map((c) => c.spec.inprocess)).toEqual([true, undefined]);
 });
 
 test("start without an agent names the available agents in the error", async () => {

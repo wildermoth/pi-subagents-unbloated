@@ -17,6 +17,14 @@ let agentsMod: Promise<typeof import("./agents.ts")> | undefined;
 const agentsModule = () => (agentsMod ??= import("./agents.ts"));
 let isoMod: Promise<typeof import("./isolation.ts")> | undefined;
 const isolationModule = () => (isoMod ??= import("./isolation.ts"));
+/** Both backends behind one Runner: the spec says which. Each loads only when first used. */
+async function backends(): Promise<Runner> {
+  const [{ createRunner }, { createSdkRunner }] = await Promise.all([import("./runner.ts"), import("./sdk-runner.ts")]);
+  const rpc = createRunner();
+  const sdk = createSdkRunner();
+  return { start: (spec) => (spec.inprocess ? sdk : rpc).start(spec) };
+}
+
 export default function (pi: ExtensionAPI, injected?: Runner) {
   let ctx: ExtensionContext | undefined;
   let state: { jobs: Jobs; inbox: Inbox } | undefined;
@@ -84,7 +92,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     const [{ createInbox }, { createJobs }, runner] = await Promise.all([
       import("./inbox.ts"),
       import("./jobs.ts"),
-      injected ?? import("./runner.ts").then((m) => m.createRunner()),
+      injected ?? backends(),
     ]);
     const inbox = createInbox({ onPublish: flushIfIdle });
     const jobs = createJobs({
@@ -153,6 +161,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
             spec: {
               cwd,
               task: p.task!,
+              inprocess: def.inprocess,
               systemPrompt: def.prompt,
               tools: def.tools,
               model: def.model ?? (c.model ? `${c.model.provider}/${c.model.id}` : undefined),
