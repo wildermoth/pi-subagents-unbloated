@@ -102,6 +102,12 @@ test("steer and cancel reach the child", async () => {
   await expect(run(h, cwd, { action: "steer", id, message: "late" })).rejects.toThrow();
 });
 
+test("start without an agent names the available agents in the error", async () => {
+  const cwd = await project();
+  const h = harness();
+  await expect(run(h, cwd, { action: "start", task: "x" })).rejects.toThrow(/start requires agent[\s\S]*scout/);
+});
+
 test("validation and trust", async () => {
   const cwd = await project();
   const h = harness();

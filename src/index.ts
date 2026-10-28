@@ -86,18 +86,27 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   pi.registerTool({
     name: "subagent",
     label: "Subagent",
-    description: "Delegate to agents; start takes a name (agents is optional) and runs in background. After start, end your turn.",
+    description: "Delegate to agents: start needs agent (names: action=agents) and task, runs in background. Then end your turn.",
     parameters: params,
     async execute(_id, args, signal, _onUpdate, c) {
       const p = args as Params;
-      requireArgs(p);
+      const agentList = async () => {
+        const { discoverAgents, listAgents } = await agentsModule();
+        const { agents, warnings } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
+        return [listAgents(agents), ...warnings].filter(Boolean).join("\n") || "no agents defined";
+      };
+      try {
+        requireArgs(p);
+      } catch (e) {
+        // A model that guessed at start without an agent name gets the names in the error, not a second round trip.
+        if (p.action === "start" && !p.agent)
+          throw new Error(`${(e as Error).message}. Available agents:\n${await agentList()}`, { cause: e });
+        throw e;
+      }
       const { jobs, inbox, isWriter } = await getState();
       switch (p.action) {
-        case "agents": {
-          const { discoverAgents, listAgents } = await agentsModule();
-          const { agents, warnings } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
-          return text([listAgents(agents), ...warnings].filter(Boolean).join("\n") || "no agents defined");
-        }
+        case "agents":
+          return text(await agentList());
         case "start": {
           const { discoverAgents, resolveAgent } = await agentsModule();
           const { agents } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
