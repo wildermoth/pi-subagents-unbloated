@@ -15,7 +15,8 @@
 | `src/index.ts` | Pi integration: registers the tool and `/subagents`, dispatches actions, session lifecycle hooks, completion delivery. Loads everything else lazily on the first tool call. |
 | `src/agents.ts` (prompt list) | At the first run of a session, `before_agent_start` adds a `subagents` section with each agent's name and 60-character blurb, cached for the session. |
 | `src/schema.ts` | The tool contract: plain JSON Schema, single-source action list and required arguments, shared result strings. |
-| `src/statusbar.ts` | Pure renderer for the live job widget: tree lines, spinner, elapsed time, capped at 5 rows plus a summary row. Styles and width fitting are injected. |
+| `src/progress.ts` | Turns the event stream (identical for RPC and SDK) into a progress snapshot: turns, tool calls, context size, running tools, latest text. |
+| `src/statusbar.ts` | Pure renderer for the live job widget: tree lines, spinner, stats, tool-based activity, capped at 5 rows plus a summary row. Styles and width fitting are injected. |
 | `src/widget.ts` | Mounts that renderer above the editor, repaints on change, and runs the spinner timer only while a job is running. |
 | `src/agent-config.ts` | The `/subagent-model` menu and the frontmatter edit it performs. |
 | `src/recovery.ts` | Replays persisted session entries in one pass: job records, live worktrees, unread results. |
