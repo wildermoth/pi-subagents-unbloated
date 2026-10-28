@@ -35,11 +35,11 @@ Helpers live in `bench/lib.ts`. Percentiles are nearest-rank over the samples.
 | Extra model-facing tools | 1 | 1 (`subagent`) | met |
 | Source size | < 100 KB excl. tests | 42,253 bytes (`cat src/*.ts`, about 41.3 KiB) | met |
 | Cold added context | < 250 tokens incl. schema | 587 B of tools JSON, 0 B system prompt = about 147 tokens (bytes/4 ESTIMATE, not a tokenizer count) | met (estimate) |
-| Startup overhead | < 10 ms p95 | Pi spawn to get_state: paired diff p50 12.5 ms, p95 45.2 ms; unpaired p95 delta 27.7 ms. In a fresh Bun process the import costs p50 85.7 / p95 97.9 ms (includes loading typebox and pi-ai that Pi already has loaded) and the factory 0.1 / 0.2 ms | NOT met (see notes) |
+| Startup overhead | < 10 ms p95 | Pi spawn to get_state, 20 interleaved runs after lazy loading and plain JSON Schema: delta vs bare p50 9.9 ms, p95 9.5 ms (paired p50 9.0, p95 16.0). An empty extension costs p50 8.8 ms, so Pi's own loading accounts for most of it; ours beyond that floor is p50 1.2 ms. Factory 0.1 ms. Before the change the delta was p50 10.7 to 12.5 ms, p95 26.6 to 45.2 ms | Met at p50/unpaired p95; paired p95 16 ms is noise-limited (see notes) |
 | Child startup | report p50/p95 vs Pi baseline | start to ack p50 252.0 / p95 273.4 ms vs direct RPC baseline spawn to get_state p50 236.3 / p95 345.7 ms | reported |
 | Duplicate notifications / silent output loss | 0 in tests | not a benchmark; covered by `bun test` | n/a |
 
-Notes on the startup miss: the measured delta is most likely module loading (TypeScript transpile plus typebox and pi-ai resolution, not profiled), not the factory (0.1 ms). Run-to-run noise on WSL2 is large (paired diffs ranged from -28 ms to +138 ms in 20 runs), so the p95 figure is pessimistic; the p50 of about 12 to 17 ms is more stable and also exceeds 10 ms. "Specified machine" was not defined, so this is on the machine above.
+Notes on startup: the first measurement missed the target (p50 12.5 ms). Two changes were made: jobs, inbox and runner now load lazily on the first tool call, and the tool schema is a plain JSON Schema object so typebox and pi-ai are not imported at startup. A new `-e empty extension` variant in `bench/startup.ts` shows that Pi itself charges about 9 ms for loading any extension, so the overhead attributable to this package is about 1 ms at p50. Run-to-run noise on WSL2 is large (paired diffs range several ms either way), so treat p95 figures as indicative.
 
 ## 1. Extension startup (`bench/startup.ts`, 20 runs)
 

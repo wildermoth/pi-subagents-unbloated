@@ -1,3 +1,4 @@
+import { join } from "node:path";
 // Startup benchmark. Usage: bun bench/startup.ts [runs=20]   (internal: --child)
 // (1) extension import + factory cost in fresh bun processes, (2) pi --mode rpc spawn->get_state with/without the extension,
 // (3) idle resources (stub timers/handles, child processes).
@@ -45,8 +46,11 @@ console.log(`factory calls: ${last.calls.join(",")}; timers created=${last.timer
 // (2) pi spawn -> get_state
 const dir = makeAgentDir();
 const env = { ...process.env, PI_CODING_AGENT_DIR: dir, PI_TELEMETRY: "0" };
+const emptyExt = join(dir, "empty-extension.ts");
+await Bun.write(emptyExt, "export default function () {}\n");
 const variants: Record<string, string[]> = {
   "--no-extensions (bare)": [...BASE_FLAGS, "--no-extensions"],
+  "-e empty extension (Pi floor)": [...BASE_FLAGS, "--no-extensions", "-e", emptyExt],
   "-e src/index.ts": [...BASE_FLAGS, "--no-extensions", "-e", EXT],
 };
 // warm the disk cache / first-run work, not recorded
@@ -66,7 +70,9 @@ for (let i = 0; i < N; i++) {
 }
 console.log("\n(2) pi --mode rpc spawn -> get_state response");
 const bare = row("--no-extensions", res["--no-extensions (bare)"]!);
+const floor = row("-e empty extension (Pi floor)", res["-e empty extension (Pi floor)"]!);
 const ext = row("-e src/index.ts", res["-e src/index.ts"]!);
+console.log(`Pi's own cost of loading any extension: p50=${f(floor.p50 - bare.p50)}ms; ours beyond that floor: p50=${f(ext.p50 - floor.p50)}ms`);
 console.log(`delta p50=${f(ext.p50 - bare.p50)}ms p95=${f(ext.p95 - bare.p95)}ms (p95 of paired diffs below)`);
 const diffs = res["-e src/index.ts"]!.map((v, i) => v - res["--no-extensions (bare)"]![i]!);
 row("paired diff (ext - bare)", diffs);
