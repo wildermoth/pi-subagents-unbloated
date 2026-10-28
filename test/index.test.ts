@@ -162,6 +162,21 @@ test("Down at an empty prompt opens the list and swallows Down and Escape, and s
   expect(h.keyHandlers).toHaveLength(0);
 });
 
+test("an agent without a tools line inherits the parent's active tools, minus subagent; a tools line still restricts", async () => {
+  const cwd = await project();
+  await writeFile(join(cwd, ".pi", "agents", "free.md"), "---\nname: free\ndescription: Anything\n---\nGo.");
+  const h = harness();
+  await run(h, cwd, { action: "start", agent: "free", task: "x" });
+  await run(h, cwd, { action: "start", agent: "scout", task: "y" });
+  await started(h, 2);
+  expect(h.ctls[0]!.spec.tools).toEqual(["read", "bash", "grep"]);
+  expect(h.ctls[1]!.spec.tools).toEqual(["read", "grep"]); // scout names its own
+  h.setActiveTools(["subagent"]);
+  await run(h, cwd, { action: "start", agent: "free", task: "z" });
+  await started(h, 3);
+  expect(h.ctls[2]!.spec.tools).toBeUndefined(); // nothing to inherit: Pi's default set
+});
+
 test("start without an agent names the available agents in the error", async () => {
   const cwd = await project();
   const h = harness();

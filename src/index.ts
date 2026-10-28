@@ -65,6 +65,12 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   const widget = createWidget(records, { selected: list.selected, active: list.active });
   let waking = false; // a wake is in flight; sendMessage defers inside agent_settled, so isIdle() stays true meanwhile
 
+  /** An agent with no `tools:` line is not restricted: it gets what the parent has active, minus this tool (no recursion). */
+  const inheritedTools = (): string[] | undefined => {
+    const names = pi.getActiveTools().filter((n) => n !== "subagent");
+    return names.length ? names : undefined; // nothing usable to inherit: Pi's default set
+  };
+
   /** The job's worktree, refusing while the job could still be writing to it. */
   function workspaceOf(id: string): Workspace {
     const ws = workspaces.get(id);
@@ -183,7 +189,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
               task: p.task!,
               inprocess: def.inprocess,
               systemPrompt: def.prompt,
-              tools: def.tools,
+              tools: def.tools ?? inheritedTools(),
               model: def.model ?? (c.model ? `${c.model.provider}/${c.model.id}` : undefined),
               thinking: def.thinking ?? c.thinkingLevel,
               trusted: c.isProjectTrusted(),

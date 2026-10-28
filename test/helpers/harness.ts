@@ -35,8 +35,10 @@ export function harness(branch: unknown[] = [], failSend = { on: false }) {
       };
     },
   };
+  let active = ["read", "bash", "grep", "subagent"];
   const pi = {
     registerTool: (t: any) => (tool = t),
+    getActiveTools: () => active,
     registerCommand: () => {},
     on: (n: string, h: any) => (handlers[n] = h),
     sendMessage: (msg: any, opts: any) => {
@@ -85,6 +87,7 @@ export function harness(branch: unknown[] = [], failSend = { on: false }) {
     keyHandlers,
     widgetLines: () => mounted?.render(120),
     setIdle: (v: boolean) => (idle = v),
+    setActiveTools: (t: string[]) => (active = t),
   };
 }
 

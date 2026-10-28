@@ -111,7 +111,7 @@ You are a careful code reviewer. Report concrete problems with file and line.
 | --- | --- | --- |
 | `name` | yes | Agent name used in `start`. |
 | `description` | yes | Shown by `agents`. |
-| `tools` | no | Comma-separated allowlist passed to the child. Omitted means Pi's default tools. |
+| `tools` | no | Comma-separated allowlist passed to the child. Omitted means the agent is not restricted: it gets the tools the parent has active when it starts (minus `subagent`). Only tools that exist in a subagent session are usable, which means Pi's built-ins (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) and not tools registered by extensions or MCP. Names that do not exist are dropped silently. |
 | `model` | no | A Pi model id, or `inherit` (default) to use the parent's current model. |
 | `thinking` | no | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Omitted means the parent's current level. |
 | `inprocess` | no | `true` runs the agent in the parent process through Pi's SDK instead of a child Pi process (default `false`). See below. |
