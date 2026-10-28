@@ -235,3 +235,18 @@ test("results unread at shutdown are shown once after the restart, without wakin
   await h3.handlers.session_start!({}, h3.ctx(cwd)); // acked, so not shown again
   expect(h3.sent.length).toBe(0);
 });
+
+
+test("interrupted jobs remain visible after repeated restarts without repeated notifications", async () => {
+  const record = { id: "j1", agent: "scout", task: "t", state: "running", createdAt: 1, delivered: false };
+  const branch = [{ type: "custom", customType: "subagent-job", data: record }];
+  const first = harness(branch);
+  await first.handlers.session_start!({}, first.ctx("/tmp"));
+  const second = harness([...branch, ...first.entries.map((e) => ({ type: "custom", customType: e.type, data: e.data }))]);
+  await second.handlers.session_start!({}, second.ctx("/tmp"));
+  expect(second.sent).toHaveLength(0);
+  expect(txt(await run(second, "/tmp", { action: "list" }))).toContain("j1 scout interrupted");
+  expect(txt(await run(second, "/tmp", { action: "status", id: "j1" }))).toContain("interrupted");
+  await second.handlers.session_start!({}, { ...second.ctx("/tmp"), sessionManager: { getBranch: () => [] } });
+  expect(txt(await run(second, "/tmp", { action: "list" }))).toBe("no jobs");
+});

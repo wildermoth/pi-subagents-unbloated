@@ -301,13 +301,16 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
       else if (d.ws) workspaces.set(d.jobId, d.ws);
     }
     await surfaceUnread(c);
+    interrupted = [];
     if (!seen.length) return;
     const { restoreInterrupted } = await import("./jobs.ts");
-    interrupted = restoreInterrupted(seen).filter((r) => r.state === "interrupted" && !seen.some((s) => s.id === r.id && s.state === "interrupted"));
-    for (const r of interrupted) pi.appendEntry(JOB_ENTRY, r);
-    if (interrupted.length)
+    interrupted = restoreInterrupted(seen).filter((r) => r.state === "interrupted");
+    const reported = new Set(seen.filter((r) => r.state === "interrupted").map((r) => r.id));
+    const fresh = interrupted.filter((r) => !reported.has(r.id));
+    for (const r of fresh) pi.appendEntry(JOB_ENTRY, r);
+    if (fresh.length)
       pi.sendMessage(
-        { customType: "subagent-interrupted", content: `Interrupted by restart, not resumed:\n${interrupted.map(line).join("\n")}`, display: true },
+        { customType: "subagent-interrupted", content: `Interrupted by restart, not resumed:\n${fresh.map(line).join("\n")}`, display: true },
         { triggerTurn: false },
       );
   });
