@@ -3,7 +3,7 @@
 import { existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { BASE_FLAGS, EXT, PI, fakeProvider, makeAgentDir, spawnToState, stopPi } from "./lib.ts";
+import { BASE_FLAGS, EXT, fakeProvider, makeAgentDir, spawnToState, stopPi } from "./lib.ts";
 
 const OFFICIAL = join(homedir(), ".pi/agent/install/releases/1.4.0/node_modules/@earendil-works/pi-coding-agent/examples/extensions/subagent/index.ts");
 const fake = fakeProvider("text");
