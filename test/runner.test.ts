@@ -6,8 +6,13 @@ import { buildArgs, createRunner, resolvePiCommand } from "../src/runner.ts";
 import type { Child, RunSpec } from "../src/types.ts";
 
 const spec = (o: Partial<RunSpec> = {}): RunSpec => ({
-  cwd: process.cwd(), task: "do it", systemPrompt: "you are a test", trusted: false,
-  timeoutMs: 5000, launchTimeoutMs: 3000, ...o,
+  cwd: process.cwd(),
+  task: "do it",
+  systemPrompt: "you are a test",
+  trusted: false,
+  timeoutMs: 5000,
+  launchTimeoutMs: 3000,
+  ...o,
 });
 
 const dir = mkdtempSync(join(tmpdir(), "fakepi-"));
@@ -18,14 +23,24 @@ function run(mode: string, s: Partial<RunSpec> = {}, ro: { maxResultBytes?: numb
   const runner = createRunner({
     graceMs: 150,
     ...ro,
-    piCommand: () => ({ command: process.execPath, args: [join(import.meta.dir, "fake-pi.ts"), `--fake=${mode}`, `--fake-pid-file=${pidFile}`, ...extra] }),
+    piCommand: () => ({
+      command: process.execPath,
+      args: [join(import.meta.dir, "fake-pi.ts"), `--fake=${mode}`, `--fake-pid-file=${pidFile}`, ...extra],
+    }),
   });
   const child = runner.start(spec(s));
   started.push(child);
   const pid = () => Number(readFileSync(pidFile, "utf8"));
   return { child, pid };
 }
-const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 afterEach(async () => {
   await Promise.all(started.splice(0).map((c) => c.cancel()));
@@ -81,13 +96,37 @@ describe("results", () => {
 
 describe("flags", () => {
   test("args, env and cwd", async () => {
-    const r = await run("echo-args", { tools: ["read", "grep"], model: "m/x", thinking: "high", trusted: true, systemPrompt: "SP", cwd: dir }).child.done;
+    const r = await run("echo-args", {
+      tools: ["read", "grep"],
+      model: "m/x",
+      thinking: "high",
+      trusted: true,
+      systemPrompt: "SP",
+      cwd: dir,
+    }).child.done;
     const got = JSON.parse(r.text);
     const a: string[] = got.args;
     const after = a.slice(a.indexOf("--mode"));
-    expect(after).toEqual(["--mode", "rpc", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
-      "--no-mcp", "--offline", "--no-session", "--tools", "read,grep", "--model", "m/x", "--thinking", "high",
-      "--append-system-prompt", "SP", "--approve"]);
+    expect(after).toEqual([
+      "--mode",
+      "rpc",
+      "--no-extensions",
+      "--no-skills",
+      "--no-prompt-templates",
+      "--no-themes",
+      "--no-mcp",
+      "--offline",
+      "--no-session",
+      "--tools",
+      "read,grep",
+      "--model",
+      "m/x",
+      "--thinking",
+      "high",
+      "--append-system-prompt",
+      "SP",
+      "--approve",
+    ]);
     expect(a).not.toContain("--no-context-files");
     expect(got.env).toBe("1");
     expect(got.cwd).toBe(require("node:fs").realpathSync(dir));
@@ -102,8 +141,14 @@ describe("flags", () => {
   });
   test("resolvePiCommand order", () => {
     expect(resolvePiCommand({ PI_BIN: "/x/pi" }, "/a/cli.js", { platform: "linux" })).toEqual({ command: "/x/pi", args: [] });
-    expect(resolvePiCommand({}, "/opt/pi-coding-agent/dist/cli.js", { platform: "linux" })).toEqual({ command: process.execPath, args: ["/opt/pi-coding-agent/dist/cli.js"] });
-    expect(resolvePiCommand({}, "/repo/foo.test.ts", { platform: "linux", resolvePackage: () => undefined })).toEqual({ command: "pi", args: [] });
+    expect(resolvePiCommand({}, "/opt/pi-coding-agent/dist/cli.js", { platform: "linux" })).toEqual({
+      command: process.execPath,
+      args: ["/opt/pi-coding-agent/dist/cli.js"],
+    });
+    expect(resolvePiCommand({}, "/repo/foo.test.ts", { platform: "linux", resolvePackage: () => undefined })).toEqual({
+      command: "pi",
+      args: [],
+    });
   });
 });
 
@@ -113,7 +158,11 @@ describe("failures", () => {
     expect(r.failure?.kind).toBe("launch");
   });
   test("launch failure when resolution throws", async () => {
-    const r = await createRunner({ piCommand: () => { throw new Error("no pi"); } }).start(spec()).done;
+    const r = await createRunner({
+      piCommand: () => {
+        throw new Error("no pi");
+      },
+    }).start(spec()).done;
     expect(r.failure?.kind).toBe("launch");
   });
   test("exit before ack", async () => {
@@ -244,7 +293,11 @@ describe("cancel and steer", () => {
         expect(readFileSync(descendantExit, "utf8")).toBe("terminated");
       } finally {
         if (existsSync(descendantPid)) {
-          try { process.kill(Number(readFileSync(descendantPid, "utf8")), "SIGKILL"); } catch { /* already gone */ }
+          try {
+            process.kill(Number(readFileSync(descendantPid, "utf8")), "SIGKILL");
+          } catch {
+            /* already gone */
+          }
         }
       }
     }
@@ -295,15 +348,24 @@ describe("resolvePiCommand cross-platform", () => {
   const NODE = "/usr/bin/node";
 
   test("PI_BIN wins over everything", () => {
-    expect(resolvePiCommand({ PI_BIN: "/x/pi" }, "/o/pi-coding-agent/cli.js", { platform: "linux", resolvePackage: none, execPath: NODE }))
-      .toEqual({ command: "/x/pi", args: [] });
+    expect(
+      resolvePiCommand({ PI_BIN: "/x/pi" }, "/o/pi-coding-agent/cli.js", { platform: "linux", resolvePackage: none, execPath: NODE }),
+    ).toEqual({ command: "/x/pi", args: [] });
   });
   test("package bin.pi is used after argv1 and before PATH", () => {
     const f = fsOf({
-      "/n/node_modules/@earendil-works/pi-coding-agent/package.json": JSON.stringify({ name: "@earendil-works/pi-coding-agent", bin: { pi: "dist/bundle/cli.js" } }),
+      "/n/node_modules/@earendil-works/pi-coding-agent/package.json": JSON.stringify({
+        name: "@earendil-works/pi-coding-agent",
+        bin: { pi: "dist/bundle/cli.js" },
+      }),
       "/n/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js": "",
     });
-    const r = resolvePiCommand({}, "/repo/x.test.ts", { ...f, platform: "linux", execPath: NODE, resolvePackage: () => "/n/node_modules/@earendil-works/pi-coding-agent/dist/index.js" });
+    const r = resolvePiCommand({}, "/repo/x.test.ts", {
+      ...f,
+      platform: "linux",
+      execPath: NODE,
+      resolvePackage: () => "/n/node_modules/@earendil-works/pi-coding-agent/dist/index.js",
+    });
     expect(r).toEqual({ command: NODE, args: ["/n/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js"] });
   });
   test("package route is skipped when the host runtime is not node", () => {
@@ -311,38 +373,60 @@ describe("resolvePiCommand cross-platform", () => {
       "/n/p/package.json": JSON.stringify({ name: "@earendil-works/pi-coding-agent", bin: { pi: "cli.js" } }),
       "/n/p/cli.js": "",
     });
-    expect(resolvePiCommand({}, "/repo/x.test.ts", { ...f, platform: "linux", execPath: "/usr/bin/bun", resolvePackage: () => "/n/p/index.js" }))
-      .toEqual({ command: "pi", args: [] });
+    expect(
+      resolvePiCommand({}, "/repo/x.test.ts", { ...f, platform: "linux", execPath: "/usr/bin/bun", resolvePackage: () => "/n/p/index.js" }),
+    ).toEqual({ command: "pi", args: [] });
   });
   test("package resolution failure falls through to PATH", () => {
-    const boom = () => { throw new Error("nope"); };
+    const boom = () => {
+      throw new Error("nope");
+    };
     expect(resolvePiCommand({}, "/repo/x.test.ts", { platform: "linux", resolvePackage: boom })).toEqual({ command: "pi", args: [] });
     const f = fsOf({ "/n/pkg/package.json": "{not json" });
-    expect(resolvePiCommand({}, "/repo/x.test.ts", { ...f, platform: "linux", resolvePackage: () => "/n/pkg/index.js" })).toEqual({ command: "pi", args: [] });
+    expect(resolvePiCommand({}, "/repo/x.test.ts", { ...f, platform: "linux", resolvePackage: () => "/n/pkg/index.js" })).toEqual({
+      command: "pi",
+      args: [],
+    });
   });
   test("win32 PATH lookup honours PATHEXT and parses the npm shim", () => {
     const f = fsOf({
       "C:\\npm\\pi.CMD": SHIM,
       [`${PKG}\\dist\\bundle\\cli.js`]: "",
     });
-    const r = resolvePiCommand({ Path: "C:\\bin;C:\\npm", PATHEXT: ".EXE;.CMD" }, "C:\\t\\x.test.ts", { ...f, platform: "win32", resolvePackage: none, execPath: NODE });
+    const r = resolvePiCommand({ Path: "C:\\bin;C:\\npm", PATHEXT: ".EXE;.CMD" }, "C:\\t\\x.test.ts", {
+      ...f,
+      platform: "win32",
+      resolvePackage: none,
+      execPath: NODE,
+    });
     expect(r).toEqual({ command: NODE, args: [`${PKG}\\dist\\bundle\\cli.js`] });
   });
   test("win32 PATH finds a real .exe directly", () => {
     const f = fsOf({ "C:\\bin\\pi.exe": "" });
-    expect(resolvePiCommand({ PATH: "C:\\bin", PATHEXT: ".exe" }, undefined, { ...f, platform: "win32", resolvePackage: none, execPath: NODE }))
-      .toEqual({ command: "C:\\bin\\pi.exe", args: [] });
+    expect(
+      resolvePiCommand({ PATH: "C:\\bin", PATHEXT: ".exe" }, undefined, { ...f, platform: "win32", resolvePackage: none, execPath: NODE }),
+    ).toEqual({ command: "C:\\bin\\pi.exe", args: [] });
   });
   test("win32 PI_BIN pointing at a .cmd shim is unwrapped", () => {
     const f = fsOf({ "C:\\npm\\pi.cmd": SHIM, [`${PKG}\\dist\\bundle\\cli.js`]: "" });
-    expect(resolvePiCommand({ PI_BIN: "C:\\npm\\pi.cmd" }, undefined, { ...f, platform: "win32", resolvePackage: none, execPath: NODE }).args)
-      .toEqual([`${PKG}\\dist\\bundle\\cli.js`]);
+    expect(
+      resolvePiCommand({ PI_BIN: "C:\\npm\\pi.cmd" }, undefined, { ...f, platform: "win32", resolvePackage: none, execPath: NODE }).args,
+    ).toEqual([`${PKG}\\dist\\bundle\\cli.js`]);
   });
   test("win32 unparsable shim fails with a clear error", () => {
     const f = fsOf({ "C:\\npm\\pi.cmd": "@echo off\r\nsome-wrapper.exe %*\r\n" });
-    expect(() => resolvePiCommand({ PATH: "C:\\npm", PATHEXT: ".cmd" }, undefined, { ...f, platform: "win32", resolvePackage: none, execPath: NODE })).toThrow(/cannot launch Pi from shim/);
+    expect(() =>
+      resolvePiCommand({ PATH: "C:\\npm", PATHEXT: ".cmd" }, undefined, { ...f, platform: "win32", resolvePackage: none, execPath: NODE }),
+    ).toThrow(/cannot launch Pi from shim/);
   });
   test("win32 missing pi fails with a clear error", () => {
-    expect(() => resolvePiCommand({ PATH: "C:\\bin", PATHEXT: ".exe" }, undefined, { ...fsOf({}), platform: "win32", resolvePackage: none, execPath: NODE })).toThrow(/cannot find `pi` on PATH/);
+    expect(() =>
+      resolvePiCommand({ PATH: "C:\\bin", PATHEXT: ".exe" }, undefined, {
+        ...fsOf({}),
+        platform: "win32",
+        resolvePackage: none,
+        execPath: NODE,
+      }),
+    ).toThrow(/cannot find `pi` on PATH/);
   });
 });

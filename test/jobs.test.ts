@@ -40,10 +40,19 @@ function fake() {
 }
 
 const spec = (task = "t"): RunSpec => ({
-  cwd: "/", task, systemPrompt: "", trusted: true, timeoutMs: 1, launchTimeoutMs: 1,
+  cwd: "/",
+  task,
+  systemPrompt: "",
+  trusted: true,
+  timeoutMs: 1,
+  launchTimeoutMs: 1,
 });
 const req = (o: Partial<StartRequest> = {}): StartRequest => ({
-  agent: "a", spec: spec(), writes: false, repoKey: "r", ...o,
+  agent: "a",
+  spec: spec(),
+  writes: false,
+  repoKey: "r",
+  ...o,
 });
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -80,7 +89,15 @@ describe("jobs", () => {
   test("states observed forward only via onChange", async () => {
     const f = fake();
     const seen: string[] = [];
-    const jobs = createJobs({ runner: f.runner, maxConcurrent: 1, onChange: (r) => seen.push(`${r.id}:${r.state}`), id: (() => { let n = 0; return () => `j${++n}`; })() });
+    const jobs = createJobs({
+      runner: f.runner,
+      maxConcurrent: 1,
+      onChange: (r) => seen.push(`${r.id}:${r.state}`),
+      id: (() => {
+        let n = 0;
+        return () => `j${++n}`;
+      })(),
+    });
     jobs.start(req());
     jobs.start(req());
     f.children[0]!.finish(ok());
@@ -88,13 +105,22 @@ describe("jobs", () => {
     f.children[1]!.finish(ok());
     await jobs.wait("j2");
     expect(seen).toEqual([
-      "j1:queued", "j1:starting", "j1:running", "j2:queued",
-      "j1:completed", "j2:starting", "j2:running", "j2:completed",
+      "j1:queued",
+      "j1:starting",
+      "j1:running",
+      "j2:queued",
+      "j1:completed",
+      "j2:starting",
+      "j2:running",
+      "j2:completed",
     ]);
   });
 
   test("two jobs finishing in the same turn, either order", async () => {
-    for (const order of [[0, 1], [1, 0]]) {
+    for (const order of [
+      [0, 1],
+      [1, 0],
+    ]) {
       const f = fake();
       const terminal: string[] = [];
       const jobs = createJobs({ runner: f.runner, onTerminal: (r) => terminal.push(r.id) });
@@ -352,7 +378,12 @@ describe("jobs", () => {
 
   test("observer throwing does not leak slots", async () => {
     const f = fake();
-    const jobs = createJobs({ runner: f.runner, onTerminal: () => { throw new Error("obs"); } });
+    const jobs = createJobs({
+      runner: f.runner,
+      onTerminal: () => {
+        throw new Error("obs");
+      },
+    });
     const a = jobs.start(req());
     f.children[0]!.finish(ok());
     await jobs.wait(a.id);
@@ -361,7 +392,7 @@ describe("jobs", () => {
 
   test("random cancel/complete/fail races never leak slots or double-fire", async () => {
     let seed = 12345;
-    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
     for (let iter = 0; iter < 200; iter++) {
       const f = fake();
       const counts = new Map<string, number>();
@@ -400,15 +431,29 @@ describe("jobs", () => {
 
 describe("restoreInterrupted", () => {
   const rec = (id: string, state: JobRecord["state"]): JobRecord => ({
-    id, agent: "a", task: "t", state, createdAt: 1, delivered: false,
+    id,
+    agent: "a",
+    task: "t",
+    state,
+    createdAt: 1,
+    delivered: false,
   });
   test("latest per id wins; non-terminal become interrupted", () => {
     const out = restoreInterrupted([
-      rec("a", "queued"), rec("a", "running"), rec("b", "running"), rec("b", "completed"),
-      rec("c", "starting"), rec("d", "failed"), rec("e", "queued"),
+      rec("a", "queued"),
+      rec("a", "running"),
+      rec("b", "running"),
+      rec("b", "completed"),
+      rec("c", "starting"),
+      rec("d", "failed"),
+      rec("e", "queued"),
     ]);
     expect(Object.fromEntries(out.map((r) => [r.id, r.state]))).toEqual({
-      a: "interrupted", b: "completed", c: "interrupted", d: "failed", e: "interrupted",
+      a: "interrupted",
+      b: "completed",
+      c: "interrupted",
+      d: "failed",
+      e: "interrupted",
     });
   });
 });

@@ -42,7 +42,10 @@ async function findProjectDir(cwd: string): Promise<string | undefined> {
 
 function toTools(v: unknown): string[] | undefined {
   const items = typeof v === "string" ? v.split(",") : Array.isArray(v) ? v : [];
-  const tools = items.filter((t) => typeof t === "string").map((t) => t.trim()).filter(Boolean);
+  const tools = items
+    .filter((t) => typeof t === "string")
+    .map((t) => t.trim())
+    .filter(Boolean);
   return tools.length ? tools : undefined;
 }
 
@@ -61,7 +64,10 @@ async function loadDir(dir: string, source: AgentDef["source"], warnings: string
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") warnings.push(`${dir}: ${msg(e)}`);
     return out;
   }
-  const files = entries.filter((d) => d.isFile() && d.name.endsWith(".md")).map((d) => d.name).sort();
+  const files = entries
+    .filter((d) => d.isFile() && d.name.endsWith(".md"))
+    .map((d) => d.name)
+    .sort();
   for (const file of files) {
     const path = join(dir, file);
     try {

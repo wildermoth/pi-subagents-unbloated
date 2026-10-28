@@ -12,7 +12,11 @@ if (pidFile) writeFileSync(pidFile, String(process.pid));
 const out = (o: unknown) => process.stdout.write(JSON.stringify(o) + "\n");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const assistant = (text: string, extra: object = {}) => ({
-  role: "assistant", content: [{ type: "text", text }], stopReason: "stop", timestamp: 0, ...extra,
+  role: "assistant",
+  content: [{ type: "text", text }],
+  stopReason: "stop",
+  timestamp: 0,
+  ...extra,
 });
 const respond = (id: string, command: string, data?: unknown) =>
   out({ id, type: "response", command, success: true, ...(data === undefined ? {} : { data }) });

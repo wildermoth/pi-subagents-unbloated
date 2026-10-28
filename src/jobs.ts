@@ -1,7 +1,6 @@
 import type { Child, RunResult, RunSpec, Runner } from "./types.ts";
 
-export type JobState =
-  | "queued" | "starting" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
+export type JobState = "queued" | "starting" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
 
 export interface JobRecord {
   id: string;

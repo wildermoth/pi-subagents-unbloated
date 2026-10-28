@@ -3,8 +3,14 @@ import { createInbox } from "../src/inbox.ts";
 import type { JobRecord } from "../src/jobs.ts";
 
 const rec = (id: string, over: Partial<JobRecord> = {}): JobRecord => ({
-  id, agent: "scout", task: "t", state: "completed", createdAt: 1, delivered: false,
-  result: { status: "completed", text: `out-${id}`, truncated: false }, ...over,
+  id,
+  agent: "scout",
+  task: "t",
+  state: "completed",
+  createdAt: 1,
+  delivered: false,
+  result: { status: "completed", text: `out-${id}`, truncated: false },
+  ...over,
 });
 
 describe("inbox delivery", () => {
@@ -24,7 +30,8 @@ describe("inbox delivery", () => {
 
   test("take mid-turn: B never reappears", () => {
     const ib = createInbox();
-    const a = rec("A"), b = rec("B");
+    const a = rec("A"),
+      b = rec("B");
     ib.publish(a);
     ib.publish(b);
     expect(ib.take("B")).toBe(b);
@@ -72,14 +79,21 @@ describe("inbox format", () => {
     const ib = createInbox();
     const out = ib.format([
       rec("A"),
-      rec("B", { state: "failed", result: { status: "failed", text: "", truncated: false, failure: { kind: "timeout", message: "too slow" } } }),
+      rec("B", {
+        state: "failed",
+        result: { status: "failed", text: "", truncated: false, failure: { kind: "timeout", message: "too slow" } },
+      }),
       rec("C", { state: "cancelled", result: undefined }),
     ]);
     expect(out.split("\n")[0]).toBe("3 subagent jobs finished");
     expect(out).toContain("[A scout] completed\nout-A");
     expect(out).toContain("[B scout] failed (timeout)\nerror: too slow");
     expect(out).toContain("[C scout] cancelled");
-    expect(createInbox().format([rec("A")]).split("\n")[0]).toBe("1 subagent job finished");
+    expect(
+      createInbox()
+        .format([rec("A")])
+        .split("\n")[0],
+    ).toBe("1 subagent job finished");
   });
 
   test("truncation is explicit and utf-8 safe", () => {
@@ -112,6 +126,14 @@ test("requeue restores undelivered records ahead of newer ones", () => {
 
 test("non-completed results label their text as partial", () => {
   const ib = createInbox();
-  const r = { id: "A", agent: "a", task: "t", state: "cancelled", createdAt: 0, delivered: false, result: { status: "cancelled", text: "half", truncated: false } } as any;
+  const r = {
+    id: "A",
+    agent: "a",
+    task: "t",
+    state: "cancelled",
+    createdAt: 0,
+    delivered: false,
+    result: { status: "cancelled", text: "half", truncated: false },
+  } as any;
   expect(ib.format([r])).toContain("partial output:\nhalf");
 });

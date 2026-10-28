@@ -31,7 +31,11 @@ async function repo() {
   return cwd;
 }
 
-const exists = (p: string) => stat(p).then(() => true, () => false);
+const exists = (p: string) =>
+  stat(p).then(
+    () => true,
+    () => false,
+  );
 const start = async (h: ReturnType<typeof harness>, cwd: string, extra: object = {}) =>
   txt(await run(h, cwd, { action: "start", agent: "worker", task: "edit", ...extra })).split(" ")[1]!;
 
@@ -128,7 +132,6 @@ test("isolate outside a git repo fails clearly without starting a job", async ()
   await expect(run(h, cwd, { action: "start", agent: "worker", task: "x", isolate: true })).rejects.toThrow(/git/);
   expect(h.ctls.length).toBe(0);
 });
-
 
 test("shared writers serialize across repository subdirectories and symlink aliases", async () => {
   const cwd = await repo();

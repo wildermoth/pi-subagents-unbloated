@@ -52,9 +52,14 @@ beforeAll(() => {
   server = startFakeServer(handle, bodies);
   agentDir = makeAgentDir(server.port!);
   project = mkdtempSync(join(tmpdir(), "pi-e2e-proj-"));
-  writeFileSync(join(agentDir, "agents", "scout.md"), "---\nname: scout\ndescription: Explore\ntools: read,grep\n---\nSCOUT-MARKER be brief.");
+  writeFileSync(
+    join(agentDir, "agents", "scout.md"),
+    "---\nname: scout\ndescription: Explore\ntools: read,grep\n---\nSCOUT-MARKER be brief.",
+  );
 });
-afterAll(() => { void server?.stop(true); }); // not awaited: pending hung-child replies
+afterAll(() => {
+  void server?.stop(true);
+}); // not awaited: pending hung-child replies
 
 let live: Parent | undefined;
 afterEach(async () => {
@@ -72,10 +77,27 @@ class Parent {
   conn: RpcConnection;
   constructor(cwd = project) {
     const cmd = resolvePiCommand();
-    const args = ["--mode", "rpc", "-e", resolve("src/index.ts"), "--no-skills", "--no-prompt-templates", "--no-themes", "--no-mcp",
-      "--offline", "--no-session", "--model", "fake/fake-model", "--approve"];
-    this.child = spawn(cmd.command, [...cmd.args, ...args], { cwd, shell: false, stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_TELEMETRY: "0" } });
+    const args = [
+      "--mode",
+      "rpc",
+      "-e",
+      resolve("src/index.ts"),
+      "--no-skills",
+      "--no-prompt-templates",
+      "--no-themes",
+      "--no-mcp",
+      "--offline",
+      "--no-session",
+      "--model",
+      "fake/fake-model",
+      "--approve",
+    ];
+    this.child = spawn(cmd.command, [...cmd.args, ...args], {
+      cwd,
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_TELEMETRY: "0" },
+    });
     this.conn = new RpcConnection(this.child, { onEvent: (e) => this.events.push(e), onProtocolError: () => {} });
   }
   count = (type: string) => this.events.filter((e) => e.type === type).length;
@@ -85,14 +107,31 @@ class Parent {
   }
   /** Parent has no turn in flight and nothing is queued: n agent_settled events seen. */
   settled = (n: number) => until(() => this.count("agent_settled") >= n, 60_000);
-  childPids = () => Bun.spawnSync(["pgrep", "-P", String(this.child.pid)]).stdout.toString().split("\n").filter(Boolean).map(Number);
+  childPids = () =>
+    Bun.spawnSync(["pgrep", "-P", String(this.child.pid)])
+      .stdout.toString()
+      .split("\n")
+      .filter(Boolean)
+      .map(Number);
   async stop() {
     this.conn.closeInput();
     await Promise.race([this.conn.exited, Bun.sleep(8000)]);
-    if (this.child.pid) try { process.kill(this.child.pid, "SIGKILL"); } catch { /* already gone */ }
+    if (this.child.pid)
+      try {
+        process.kill(this.child.pid, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
   }
 }
-const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 describe("e2e: real parent pi + subagent extension", () => {
   T("(1,2,3,6) schema cost, background ids, single coalesced wake, child tools", async () => {
@@ -113,7 +152,7 @@ describe("e2e: real parent pi + subagent extension", () => {
     const reqs = parentReqs();
     // (1) registered + cold cost
     const entry = reqs[0].tools.find((t: any) => t.function?.name === "subagent");
-      const bytes = Buffer.byteLength(JSON.stringify(entry));
+    const bytes = Buffer.byteLength(JSON.stringify(entry));
     console.log(`subagent tool entry: ${bytes} bytes, ~${Math.round(bytes / 4)} tokens`);
     expect(bytes).toBeGreaterThan(0);
     expect(entry.function.parameters.properties.action).toBeDefined();
@@ -148,14 +187,14 @@ describe("e2e: real parent pi + subagent extension", () => {
       childDelay = { A: 6000, B: 300 };
       parentScript = async (b) => {
         if (isWake(b)) return textReply("wake handled");
-        if (b.messages.some((m: any) => m.role === "tool" && String(m.content).includes('result-B'))) return textReply("turn3 done");
+        if (b.messages.some((m: any) => m.role === "tool" && String(m.content).includes("result-B"))) return textReply("turn3 done");
         if (hasToolResult(b)) {
           await until(() => childDone.has("B"));
           await Bun.sleep(1500);
           const id = /started (\S+)/.exec(toolTexts(b)[1] ?? "")![1]!;
-          return toolCallsReply([mode === "inbox"
-            ? { name: "subagent", args: { action: "inbox" } }
-            : { name: "subagent", args: { action: "status", id } }]);
+          return toolCallsReply([
+            mode === "inbox" ? { name: "subagent", args: { action: "inbox" } } : { name: "subagent", args: { action: "status", id } },
+          ]);
         }
         return toolCallsReply([start("A"), start("B")]);
       };
@@ -186,7 +225,9 @@ describe("e2e: real parent pi + subagent extension", () => {
     const all = blob(last);
     expect(all.match(/\[\S+ scout\] completed\s*\\nresult-A/g)?.length).toBe(1);
     expect(all.match(/\[\S+ scout\] completed\s*\\nresult-B/g)?.length).toBe(1);
-    console.log(`staggered idle finishes: parent requests=${parentReqs().length}, wakes=${live.events.filter((e) => e.type === "agent_end").length - 1}`);
+    console.log(
+      `staggered idle finishes: parent requests=${parentReqs().length}, wakes=${live.events.filter((e) => e.type === "agent_end").length - 1}`,
+    );
   });
 
   T("(5) wait:true returns result inline, no later wake", async () => {
@@ -242,7 +283,10 @@ describe("e2e: real parent pi + subagent extension", () => {
     let id = "";
     parentScript = (b) => {
       const results = toolTexts(b);
-      if (results.length === 0) return toolCallsReply([{ name: "subagent", args: { action: "start", agent: "worker", task: "make note", isolate: true, wait: true } }]);
+      if (results.length === 0)
+        return toolCallsReply([
+          { name: "subagent", args: { action: "start", agent: "worker", task: "make note", isolate: true, wait: true } },
+        ]);
       id = /\[(\S+) worker\]/.exec(results[0])?.[1] ?? "";
       if (results.length === 1) return toolCallsReply([{ name: "subagent", args: { action: "diff", id } }]);
       if (results.length === 2) return toolCallsReply([{ name: "subagent", args: { action: "apply", id } }]);

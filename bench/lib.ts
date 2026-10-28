@@ -21,10 +21,18 @@ export const row = (name: string, xs: number[], unit = "ms") => {
 };
 
 export const rssMb = (pid: number) => {
-  try { return Number(/VmRSS:\s+(\d+)/.exec(readFileSync(`/proc/${pid}/status`, "utf8"))![1]) / 1024; } catch { return 0; }
+  try {
+    return Number(/VmRSS:\s+(\d+)/.exec(readFileSync(`/proc/${pid}/status`, "utf8"))![1]) / 1024;
+  } catch {
+    return 0;
+  }
 };
 export const childrenOf = (pid: number): number[] => {
-  try { return readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number); } catch { return []; }
+  try {
+    return readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number);
+  } catch {
+    return [];
+  }
 };
 export const descendants = (pid: number): number[] => childrenOf(pid).flatMap((c) => [c, ...descendants(c)]);
 export const treeRssMb = (pid: number) => [pid, ...descendants(pid)].reduce((s, p) => s + rssMb(p), 0);
@@ -33,17 +41,42 @@ export function makeAgentDir(fakePort?: number): string {
   const dir = mkdtempSync(join(tmpdir(), "pi-bench-agent-"));
   mkdirSync(dir, { recursive: true });
   if (fakePort) {
-    writeFileSync(join(dir, "models.json"), JSON.stringify({ providers: { fake: {
-      baseUrl: `http://127.0.0.1:${fakePort}/v1`, api: "openai-completions", apiKey: "dummy",
-      models: [{ id: "fake-model", name: "Fake", reasoning: false, input: ["text"], contextWindow: 32000, maxTokens: 2000,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } }));
+    writeFileSync(
+      join(dir, "models.json"),
+      JSON.stringify({
+        providers: {
+          fake: {
+            baseUrl: `http://127.0.0.1:${fakePort}/v1`,
+            api: "openai-completions",
+            apiKey: "dummy",
+            models: [
+              {
+                id: "fake-model",
+                name: "Fake",
+                reasoning: false,
+                input: ["text"],
+                contextWindow: 32000,
+                maxTokens: 2000,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+              },
+            ],
+          },
+        },
+      }),
+    );
   }
   return dir;
 }
 
 const chunk = (delta: object, finish: string | null = null, extra: object = {}) =>
-  `data: ${JSON.stringify({ id: "c1", object: "chat.completion.chunk", created: 0, model: "fake-model",
-    choices: [{ index: 0, delta, finish_reason: finish }], ...extra })}\n\n`;
+  `data: ${JSON.stringify({
+    id: "c1",
+    object: "chat.completion.chunk",
+    created: 0,
+    model: "fake-model",
+    choices: [{ index: 0, delta, finish_reason: finish }],
+    ...extra,
+  })}\n\n`;
 const usage = { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 };
 
 /** Zero-delay fake OpenAI-compatible provider. mode "hang" never answers. Records request bodies. */
@@ -55,15 +88,31 @@ export function fakeProvider(mode: "text" | "hang" = "text") {
       if (!req.url.endsWith("/chat/completions")) return new Response("not found", { status: 404 });
       bodies.push(await req.json());
       if (mode === "hang") return new Promise<Response>(() => {});
-      return new Response([chunk({ role: "assistant", content: "" }), chunk({ content: "fake answer" }), chunk({}, "stop", { usage }), "data: [DONE]\n\n"].join(""),
-        { headers: { "content-type": "text/event-stream" } });
+      return new Response(
+        [
+          chunk({ role: "assistant", content: "" }),
+          chunk({ content: "fake answer" }),
+          chunk({}, "stop", { usage }),
+          "data: [DONE]\n\n",
+        ].join(""),
+        { headers: { "content-type": "text/event-stream" } },
+      );
     },
   });
   return { server, bodies, port: server.port! };
 }
 
-export const BASE_FLAGS = ["--mode", "rpc", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-mcp",
-  "--no-context-files", "--offline", "--no-session"];
+export const BASE_FLAGS = [
+  "--mode",
+  "rpc",
+  "--no-skills",
+  "--no-prompt-templates",
+  "--no-themes",
+  "--no-mcp",
+  "--no-context-files",
+  "--offline",
+  "--no-session",
+];
 
 /** Spawn pi with RpcConnection and wait for the get_state response; returns ms from spawn and the live handles. */
 export async function spawnToState(args: string[], env: NodeJS.ProcessEnv, cwd = tmpdir()) {

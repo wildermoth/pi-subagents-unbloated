@@ -16,7 +16,10 @@ const params = {
   properties: {
     action: { type: "string", enum: ["start", "list", "status", "steer", "cancel", "agents", "inbox", "diff", "apply", "discard"] },
     agent: { type: "string" },
-    task: { type: "string", description: "Self-contained brief; no parent conversation is passed (project AGENTS.md/CLAUDE.md still load)" },
+    task: {
+      type: "string",
+      description: "Self-contained brief; no parent conversation is passed (project AGENTS.md/CLAUDE.md still load)",
+    },
     id: { type: "string" },
     message: { type: "string" },
     wait: { type: "boolean", description: "Block until finished (default: background)" },
@@ -62,7 +65,8 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     const ws = workspaces.get(id);
     if (!ws) throw new Error(`job ${id} has no isolated worktree`);
     const r = state?.jobs.get(id);
-    if (r && !["completed", "failed", "cancelled"].includes(r.state)) throw new Error(`job ${id} is still ${r.state}; wait or cancel first`);
+    if (r && !["completed", "failed", "cancelled"].includes(r.state))
+      throw new Error(`job ${id} is still ${r.state}; wait or cancel first`);
     return ws;
   }
   function forget(id: string) {
@@ -213,7 +217,13 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           const r = jobs.get(p.id!) ?? interrupted.find((j) => j.id === p.id);
           if (!r) throw new Error(`unknown job ${p.id}`);
           const done = inbox.take(r.id); // reading output consumes it, so no later wakeup repeats it
-          return text(done ? inbox.format([done]) : isDone(r) || r.state === "cancelled" || r.state === "interrupted" ? line(r) : `${line(r)}\n${WAIT_HINT}`);
+          return text(
+            done
+              ? inbox.format([done])
+              : isDone(r) || r.state === "cancelled" || r.state === "interrupted"
+                ? line(r)
+                : `${line(r)}\n${WAIT_HINT}`,
+          );
         }
         case "steer":
           need("id", "message");
@@ -241,7 +251,10 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           try {
             ({ applied } = await iso.apply(ws));
           } catch (e) {
-            throw new Error(`${(e as Error).message}. Worktree kept at ${ws.path} (branch ${ws.branch}); nothing was changed in your tree.`, { cause: e });
+            throw new Error(
+              `${(e as Error).message}. Worktree kept at ${ws.path} (branch ${ws.branch}); nothing was changed in your tree.`,
+              { cause: e },
+            );
           }
           forget(p.id!);
           let left = "";
@@ -287,7 +300,11 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     const records = [...unread.values()];
     const { createInbox } = await import("./inbox.ts");
     pi.sendMessage(
-      { customType: "subagent-results", content: `Unread results from before the restart:\n\n${createInbox().format(records)}`, display: true },
+      {
+        customType: "subagent-results",
+        content: `Unread results from before the restart:\n\n${createInbox().format(records)}`,
+        display: true,
+      },
       { triggerTurn: false },
     );
     pi.appendEntry(UNREAD_ENTRY, { ack: records.map((r) => r.id) });
@@ -295,7 +312,8 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
 
   pi.on("session_start", async (_e, c) => {
     ctx = c;
-    const seen = c.sessionManager.getBranch()
+    const seen = c.sessionManager
+      .getBranch()
       .filter((e) => e.type === "custom" && e.customType === JOB_ENTRY)
       .map((e) => (e as { data: JobRecord }).data);
     workspaces.clear();
@@ -315,7 +333,11 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     for (const r of fresh) pi.appendEntry(JOB_ENTRY, r);
     if (fresh.length)
       pi.sendMessage(
-        { customType: "subagent-interrupted", content: `Interrupted by restart, not resumed:\n${fresh.map(line).join("\n")}`, display: true },
+        {
+          customType: "subagent-interrupted",
+          content: `Interrupted by restart, not resumed:\n${fresh.map(line).join("\n")}`,
+          display: true,
+        },
         { triggerTurn: false },
       );
   });

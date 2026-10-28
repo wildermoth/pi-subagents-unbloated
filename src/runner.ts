@@ -134,8 +134,17 @@ export function resolvePiCommand(
 }
 
 export function buildArgs(spec: RunSpec): string[] {
-  const a = ["--mode", "rpc", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
-    "--no-mcp", "--offline", "--no-session"];
+  const a = [
+    "--mode",
+    "rpc",
+    "--no-extensions",
+    "--no-skills",
+    "--no-prompt-templates",
+    "--no-themes",
+    "--no-mcp",
+    "--offline",
+    "--no-session",
+  ];
   if (spec.tools) a.push(...(spec.tools.length ? ["--tools", spec.tools.join(",")] : ["--no-tools"]));
   if (spec.model) a.push("--model", spec.model);
   if (spec.thinking) a.push("--thinking", spec.thinking);
@@ -233,7 +242,11 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
         }
         // A leader exiting does not imply its process group has exited too.
         if (POSIX && proc.pid) {
-          try { process.kill(-proc.pid, 0); } catch { return; }
+          try {
+            process.kill(-proc.pid, 0);
+          } catch {
+            return;
+          }
           signalTree(proc, "SIGTERM");
           await new Promise((r) => setTimeout(r, graceMs));
           signalTree(proc, "SIGKILL");
@@ -257,14 +270,14 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
       };
       /** Whatever the child had said so far, so a cut-short run does not look like doing nothing. */
       const partial = () => (lastAssistant ? truncate(assistantText(lastAssistant), maxResultBytes) : { text: "", truncated: false });
-      const fail = (kind: FailureKind, message: string): void =>
-        decide({ status: "failed", ...partial(), failure: { kind, message } });
+      const fail = (kind: FailureKind, message: string): void => decide({ status: "failed", ...partial(), failure: { kind, message } });
 
       const finishIfSettled = (): void => {
         if (outcome || !acked || !settled) return;
         const stop = lastAssistant?.stopReason;
         if (!lastAssistant) return fail("protocol", "agent_settled without an assistant message");
-        if (stop === "error") return fail("provider", typeof lastAssistant.errorMessage === "string" ? lastAssistant.errorMessage : "provider error");
+        if (stop === "error")
+          return fail("provider", typeof lastAssistant.errorMessage === "string" ? lastAssistant.errorMessage : "provider error");
         if (stop === "aborted") return fail("provider", "run aborted unexpectedly");
         if (stop === "length") return fail("provider", "model hit its output length limit; the result is partial");
         if (stop !== "stop") return fail("protocol", `unexpected stopReason: ${String(stop)}`);
@@ -281,7 +294,10 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
             if (Array.isArray(ev.messages)) {
               for (let i = ev.messages.length - 1; i >= 0; i--) {
                 const m = asRecord(ev.messages[i]);
-                if (m?.role === "assistant") { lastAssistant = m; break; }
+                if (m?.role === "assistant") {
+                  lastAssistant = m;
+                  break;
+                }
               }
             }
             break;
@@ -332,7 +348,13 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
         });
       } catch (e) {
         fail("launch", `cannot spawn Pi: ${(e as Error).message}`);
-        return { done, steer: () => Promise.reject(new Error("run is finished")), cancel: async () => { await done; } };
+        return {
+          done,
+          steer: () => Promise.reject(new Error("run is finished")),
+          cancel: async () => {
+            await done;
+          },
+        };
       }
 
       live.add(proc);

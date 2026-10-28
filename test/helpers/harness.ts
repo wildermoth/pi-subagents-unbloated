@@ -6,7 +6,12 @@ import type { Child, RunResult, RunSpec, Runner } from "../../src/types.ts";
 
 export const ok = (text: string): RunResult => ({ status: "completed", text, truncated: false });
 
-export interface Ctl { spec: RunSpec; finish(r: RunResult): void; steered: string[]; cancelled: number }
+export interface Ctl {
+  spec: RunSpec;
+  finish(r: RunResult): void;
+  steered: string[];
+  cancelled: number;
+}
 
 export function harness(branch: unknown[] = [], failSend = { on: false }) {
   const handlers: Record<string, (e: any, c: any) => any> = {};
@@ -43,7 +48,11 @@ export function harness(branch: unknown[] = [], failSend = { on: false }) {
   register(pi as any, runner);
   let idle = true;
   const ctx = (cwd: string, trusted = true) => ({
-    cwd, isProjectTrusted: () => trusted, isIdle: () => idle, model: undefined, thinkingLevel: "low",
+    cwd,
+    isProjectTrusted: () => trusted,
+    isIdle: () => idle,
+    model: undefined,
+    thinkingLevel: "low",
     sessionManager: { getBranch: () => branch },
   });
   return { handlers, sent, entries, tool, ctls, ctx, setIdle: (v: boolean) => (idle = v) };
@@ -65,4 +74,3 @@ export const tick = () => new Promise((r) => setTimeout(r, 5));
 export const run = (h: ReturnType<typeof harness>, cwd: string, p: object, signal?: AbortSignal) =>
   h.tool.execute("t", p, signal, undefined, h.ctx(cwd));
 export const txt = (r: any) => r.content[0].text as string;
-

@@ -27,7 +27,10 @@ export class IsolationError extends Error {
 }
 
 export class ConflictError extends IsolationError {
-  constructor(public paths: string[], worktree: string) {
+  constructor(
+    public paths: string[],
+    worktree: string,
+  ) {
     super("conflict", `parent changed since snapshot, nothing applied (worktree kept at ${worktree}): ${paths.join(", ")}`, paths[0]);
     this.name = "ConflictError";
   }
@@ -43,7 +46,12 @@ const snapRef = (id: string) => `refs/pi-subagents/${id}/snapshot`;
 
 const MAX_STDERR = 64 * 1024;
 
-interface Out { code: number; out: Uint8Array; err: string; omitted: number }
+interface Out {
+  code: number;
+  out: Uint8Array;
+  err: string;
+  omitted: number;
+}
 
 async function run(cwd: string, args: string[], input?: Uint8Array, maxChars?: number): Promise<Out> {
   // node:child_process, not Bun.spawn: Pi loads extensions under Node.
@@ -56,7 +64,8 @@ async function run(cwd: string, args: string[], input?: Uint8Array, maxChars?: n
     });
     const out: Buffer[] = [];
     const err: Buffer[] = [];
-    let total = 0, kept = 0;
+    let total = 0,
+      kept = 0;
     const limit = maxChars ?? Infinity;
     if (maxChars !== undefined) proc.stdout!.setEncoding("utf8");
     proc.stdout!.on("data", (d: Buffer | string) => {
@@ -82,7 +91,8 @@ async function run(cwd: string, args: string[], input?: Uint8Array, maxChars?: n
     });
     proc.on("error", fail);
     proc.on("close", (code) =>
-      resolve({ code: code ?? 1, out: Buffer.concat(out), err: Buffer.concat(err).toString().trim(), omitted: total - kept }));
+      resolve({ code: code ?? 1, out: Buffer.concat(out), err: Buffer.concat(err).toString().trim(), omitted: total - kept }),
+    );
     if (input) {
       proc.stdin!.on("error", () => {}); // git may exit before reading everything
       proc.stdin!.end(input);
@@ -101,7 +111,12 @@ const gitText = async (cwd: string, args: string[]) => text(await git(cwd, args)
 const nulList = (b: Uint8Array) => text(b).split("\0").filter(Boolean);
 
 async function exists(p: string): Promise<boolean> {
-  try { await lstat(p); return true; } catch { return false; }
+  try {
+    await lstat(p);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -133,18 +148,31 @@ export async function create(opts: { repoRoot: string; id: string; baseDir?: str
   const branch = `pi-subagent/${id}`;
   await mkdir(baseDir, { recursive: true });
   const previous = worktreeAdds.get(common) ?? Promise.resolve();
-  const adding = previous.catch(() => {}).then(() =>
-    git(repoRoot, [...QUIET, "worktree", "add", "-q", "-b", branch, path, baseCommit]));
+  const adding = previous.catch(() => {}).then(() => git(repoRoot, [...QUIET, "worktree", "add", "-q", "-b", branch, path, baseCommit]));
   worktreeAdds.set(common, adding);
-  try { await adding; }
-  finally { if (worktreeAdds.get(common) === adding) worktreeAdds.delete(common); }
+  try {
+    await adding;
+  } finally {
+    if (worktreeAdds.get(common) === adding) worktreeAdds.delete(common);
+  }
   const ws: Workspace = { id, repoRoot, path, branch, baseCommit };
 
   try {
     await carry(repoRoot, path);
     await git(path, ["add", "-A"]);
-    await git(path, [...QUIET, "-c", "user.name=pi-subagents", "-c", "user.email=pi-subagents@localhost",
-      "commit", "-q", "--allow-empty", "--no-verify", "-m", "pi-subagents snapshot"]);
+    await git(path, [
+      ...QUIET,
+      "-c",
+      "user.name=pi-subagents",
+      "-c",
+      "user.email=pi-subagents@localhost",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "--no-verify",
+      "-m",
+      "pi-subagents snapshot",
+    ]);
     await git(repoRoot, ["update-ref", snapRef(id), await gitText(path, ["rev-parse", "HEAD"])]);
   } catch (e) {
     throw new IsolationError("carry", `${(e as Error).message}; ${await cleanupHalf(ws)}`, path);
@@ -154,17 +182,29 @@ export async function create(opts: { repoRoot: string; id: string; baseDir?: str
 
 // Copy the parent's uncommitted work into the worktree.
 async function carry(repoRoot: string, wt: string): Promise<void> {
-  const patch = await git(repoRoot, ["diff", "HEAD", "--binary", "--no-ext-diff", "--no-textconv", "--no-renames",
-    "--src-prefix=a/", "--dst-prefix=b/"]);
+  const patch = await git(repoRoot, [
+    "diff",
+    "HEAD",
+    "--binary",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--no-renames",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+  ]);
   if (patch.length) await git(wt, ["apply", "--index", "--binary"], patch);
   const untracked = nulList(await git(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z"]));
   for (const rel of untracked) {
     if (rel.endsWith("/")) continue; // nested repo
-    const src = join(repoRoot, rel), dst = join(wt, rel);
+    const src = join(repoRoot, rel),
+      dst = join(wt, rel);
     const st = await lstat(src);
     await mkdir(dirname(dst), { recursive: true });
     if (st.isSymbolicLink()) await symlink(await readlink(src), dst);
-    else if (st.isFile()) { await copyFile(src, dst); await chmod(dst, st.mode & 0o777); }
+    else if (st.isFile()) {
+      await copyFile(src, dst);
+      await chmod(dst, st.mode & 0o777);
+    }
   }
 }
 
@@ -178,7 +218,9 @@ async function cleanupHalf(ws: Workspace): Promise<string> {
       await git(ws.repoRoot, ["branch", "-D", ws.branch]);
       return "unmodified worktree removed";
     }
-  } catch { /* fall through to keep */ }
+  } catch {
+    /* fall through to keep */
+  }
   return `worktree kept at ${ws.path} (branch ${ws.branch})`;
 }
 
@@ -214,7 +256,8 @@ async function diverged(ws: Workspace, snap: string, paths: string[]): Promise<s
     const out = await git(ws.repoRoot, ["ls-tree", "-z", snap, "--", ...paths.slice(i, i + 200)]);
     for (const rec of nulList(out)) {
       const tab = rec.indexOf("\t");
-      const meta = rec.slice(0, tab), name = rec.slice(tab + 1);
+      const meta = rec.slice(0, tab),
+        name = rec.slice(tab + 1);
       const [mode, , sha] = meta.split(" ");
       want.set(name, `${mode} ${sha}`);
     }
@@ -229,13 +272,15 @@ async function diverged(ws: Workspace, snap: string, paths: string[]): Promise<s
         const sha = text(await git(ws.repoRoot, ["hash-object", "--stdin"], new TextEncoder().encode(await readlink(abs)))).trim();
         have = `120000 ${sha}`;
       } else if (st.isFile()) {
-        const sha = (await gitText(ws.repoRoot, ["hash-object", "--", p]));
+        const sha = await gitText(ws.repoRoot, ["hash-object", "--", p]);
         // Windows has no exec bit (and may check symlinks out as plain files): trust the snapshot's mode there.
         const wantMode = want.get(p)?.split(" ")[0];
         const kept = process.platform === "win32" && (wantMode === "100755" || wantMode === "120000");
         have = `${kept ? wantMode : st.mode & 0o111 ? "100755" : "100644"} ${sha}`;
       } else have = "other";
-    } catch { have = undefined; } // absent (or parent is not a directory)
+    } catch {
+      have = undefined;
+    } // absent (or parent is not a directory)
     if (have !== want.get(p)) bad.push(p);
   }
   return bad;

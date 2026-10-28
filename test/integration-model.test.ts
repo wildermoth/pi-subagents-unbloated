@@ -24,14 +24,31 @@ const savedEnv = { dir: process.env.PI_CODING_AGENT_DIR, tel: process.env.PI_TEL
 function handle(body: any): Response | Promise<Response> {
   const hasToolResult = body.messages?.some((m: any) => m.role === "tool");
   switch (script) {
-    case "text": return textReply("fake answer");
+    case "text":
+      return textReply("fake answer");
     case "tool-then-text":
       if (hasToolResult) return textReply("file says: " + body.messages.findLast((m: any) => m.role === "tool").content);
-      return sse([chunk({ role: "assistant", content: "" }),
-        chunk({ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "read", arguments: JSON.stringify({ path: join(work, "hello.txt") }) } }] }),
-        chunk({}, "tool_calls", { usage })]);
-    case "http500": return new Response(JSON.stringify({ error: { message: "boom from fake", type: "server_error" } }), { status: 500, headers: { "content-type": "application/json" } });
-    case "hang": return new Promise<Response>(() => {});
+      return sse([
+        chunk({ role: "assistant", content: "" }),
+        chunk({
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_1",
+              type: "function",
+              function: { name: "read", arguments: JSON.stringify({ path: join(work, "hello.txt") }) },
+            },
+          ],
+        }),
+        chunk({}, "tool_calls", { usage }),
+      ]);
+    case "http500":
+      return new Response(JSON.stringify({ error: { message: "boom from fake", type: "server_error" } }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      });
+    case "hang":
+      return new Promise<Response>(() => {});
   }
 }
 
@@ -43,25 +60,44 @@ beforeAll(() => {
   agentDir = makeAgentDir(server.port!);
   // Marker extension: proves whether extensions load.
   mkdirSync(join(agentDir, "extensions"));
-  writeFileSync(join(agentDir, "extensions", "marker.ts"),
-    `import { writeFileSync } from "node:fs";\nexport default function () { writeFileSync(${JSON.stringify(join(agentDir, "marker"))}, "loaded"); }\n`);
+  writeFileSync(
+    join(agentDir, "extensions", "marker.ts"),
+    `import { writeFileSync } from "node:fs";\nexport default function () { writeFileSync(${JSON.stringify(join(agentDir, "marker"))}, "loaded"); }\n`,
+  );
   process.env.PI_CODING_AGENT_DIR = agentDir; // the runner spawns children with the parent's env
   process.env.PI_TELEMETRY = "0";
 });
 
 afterAll(() => {
   void server?.stop(true);
-  for (const [k, v] of [["PI_CODING_AGENT_DIR", savedEnv.dir], ["PI_TELEMETRY", savedEnv.tel]] as const) {
-    if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  for (const [k, v] of [
+    ["PI_CODING_AGENT_DIR", savedEnv.dir],
+    ["PI_TELEMETRY", savedEnv.tel],
+  ] as const) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
   }
 });
 
 const spec = (o: Partial<RunSpec> = {}): RunSpec => ({
-  cwd: work, task: "say something", systemPrompt: "You are a test agent.", model: "fake/fake-model",
-  trusted: false, timeoutMs: 40_000, launchTimeoutMs: 20_000, ...o,
+  cwd: work,
+  task: "say something",
+  systemPrompt: "You are a test agent.",
+  model: "fake/fake-model",
+  trusted: false,
+  timeoutMs: 40_000,
+  launchTimeoutMs: 20_000,
+  ...o,
 });
 const runner = () => createRunner({ graceMs: 1500 });
-const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 /** Spawn real Pi exactly as the runner does, recording every response and event. */
 function rawPi(extraArgs: string[] = [], dropArgs: string[] = []) {
@@ -70,7 +106,13 @@ function rawPi(extraArgs: string[] = [], dropArgs: string[] = []) {
   const child = spawn(cmd.command, [...cmd.args, ...args, ...extraArgs], { cwd: work, shell: false, stdio: ["pipe", "pipe", "pipe"] });
   const events: any[] = [];
   const waiters: (() => void)[] = [];
-  const conn = new RpcConnection(child, { onEvent: (e) => { events.push(e); waiters.splice(0).forEach((w) => w()); }, onProtocolError: () => {} });
+  const conn = new RpcConnection(child, {
+    onEvent: (e) => {
+      events.push(e);
+      waiters.splice(0).forEach((w) => w());
+    },
+    onProtocolError: () => {},
+  });
   const waitFor = async (type: string, ms = 30_000) => {
     const t0 = Date.now();
     while (!events.some((e) => e.type === type)) {
@@ -78,7 +120,11 @@ function rawPi(extraArgs: string[] = [], dropArgs: string[] = []) {
       await Promise.race([new Promise<void>((r) => waiters.push(r)), Bun.sleep(200)]);
     }
   };
-  const stop = async () => { conn.closeInput(); await Promise.race([conn.exited, Bun.sleep(5000)]); if (child.pid && alive(child.pid)) child.kill("SIGKILL"); };
+  const stop = async () => {
+    conn.closeInput();
+    await Promise.race([conn.exited, Bun.sleep(5000)]);
+    if (child.pid && alive(child.pid)) child.kill("SIGKILL");
+  };
   return { conn, events, waitFor, stop, child };
 }
 
@@ -102,7 +148,9 @@ describe("real pi + fake provider", () => {
       const end = p.events.find((e) => e.type === "agent_end");
       expect(Array.isArray(end.messages)).toBe(true);
       expect(end.messages.findLast((x: any) => x.role === "assistant").stopReason).toBe("stop");
-    } finally { await p.stop(); }
+    } finally {
+      await p.stop();
+    }
   });
 
   T("(a,b) provider 500: assistant message has stopReason error + errorMessage", async () => {
@@ -114,7 +162,9 @@ describe("real pi + fake provider", () => {
       const m = p.events.filter((e) => e.type === "message_end" && e.message?.role === "assistant").at(-1).message;
       expect(m.stopReason).toBe("error");
       expect(String(m.errorMessage)).toContain("500");
-    } finally { await p.stop(); }
+    } finally {
+      await p.stop();
+    }
   });
 
   T("(c) runner extracts final text", async () => {
@@ -144,7 +194,12 @@ describe("real pi + fake provider", () => {
     script = "hang";
     bodies.length = 0;
     // Pi retitles its process, so find it as our direct child (spawned detached, so it leads its own group).
-    const pidsOf = () => Bun.spawnSync(["pgrep", "-P", String(process.pid), "-x", "pi"]).stdout.toString().split("\n").filter(Boolean).map(Number);
+    const pidsOf = () =>
+      Bun.spawnSync(["pgrep", "-P", String(process.pid), "-x", "pi"])
+        .stdout.toString()
+        .split("\n")
+        .filter(Boolean)
+        .map(Number);
     const before = pidsOf();
     const child = runner().start(spec());
     for (let i = 0; i < 100 && bodies.length === 0; i++) await Bun.sleep(200);
@@ -189,6 +244,8 @@ describe("real pi + fake provider", () => {
     try {
       await p.conn.send({ type: "get_state" }, 20_000);
       expect(existsSync(marker)).toBe(true); // control: the marker extension is loadable
-    } finally { await p.stop(); }
+    } finally {
+      await p.stop();
+    }
   });
 });

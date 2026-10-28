@@ -236,7 +236,6 @@ test("results unread at shutdown are shown once after the restart, without wakin
   expect(h3.sent.length).toBe(0);
 });
 
-
 test("interrupted jobs remain visible after repeated restarts without repeated notifications", async () => {
   const record = { id: "j1", agent: "scout", task: "t", state: "running", createdAt: 1, delivered: false };
   const branch = [{ type: "custom", customType: "subagent-job", data: record }];

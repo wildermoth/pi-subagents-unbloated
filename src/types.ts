@@ -36,10 +36,7 @@ export type RunResult = {
   /** Final assistant text, bounded by the runner's maxResultBytes. */
   text: string;
   truncated: boolean;
-} & (
-  | { status: "failed"; failure: { kind: FailureKind; message: string } }
-  | { status: "completed" | "cancelled"; failure?: never }
-);
+} & ({ status: "failed"; failure: { kind: FailureKind; message: string } } | { status: "completed" | "cancelled"; failure?: never });
 
 /** A live child. Exactly one of done's outcomes occurs; cancel/steer are idempotent and safe after done. */
 export interface Child {

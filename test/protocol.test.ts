@@ -117,7 +117,7 @@ describe("RpcConnection", () => {
     const { c, errors } = conn(["--fake=malformed"]);
     await c.send({ type: "prompt", message: "x" }, 5000);
     await Bun.sleep(100);
-    expect(errors.some((e) => e.message.includes('malformed'))).toBe(true);
+    expect(errors.some((e) => e.message.includes("malformed"))).toBe(true);
     c.closeInput();
     await c.exited;
   });
@@ -125,7 +125,7 @@ describe("RpcConnection", () => {
     const { c, errors } = conn(["--fake=overflow"], { maxRecordChars: 1024 * 1024 });
     await c.send({ type: "prompt", message: "x" }, 5000);
     await Bun.sleep(300);
-    expect(errors.some((e) => e.message.includes('size limit'))).toBe(true);
+    expect(errors.some((e) => e.message.includes("size limit"))).toBe(true);
     c.closeInput();
     await c.exited;
   });

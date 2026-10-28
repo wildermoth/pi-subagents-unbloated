@@ -18,7 +18,11 @@ async function put(root: string, rel: string, data: string | Uint8Array) {
   await writeFile(join(root, rel), data);
 }
 const read = (root: string, rel: string) => readFile(join(root, rel), "utf8");
-const exists = (p: string) => lstat(p).then(() => true, () => false);
+const exists = (p: string) =>
+  lstat(p).then(
+    () => true,
+    () => false,
+  );
 const mode = async (p: string) => (await lstat(p)).mode & 0o777;
 const win = process.platform === "win32"; // no exec bits or reliable symlinks/chmod there
 const BIN = new Uint8Array([0, 1, 2, 255, 254, 0, 7, 128]);
@@ -95,8 +99,8 @@ test("binary, symlink and mode changes are carried", async () => {
   const ws = await create({ repoRoot: repo, id: "j" });
   expect(new Uint8Array(await readFile(join(ws.path, "bin.dat")))).toEqual(changed);
   if (!win) {
-    expect(await mode(join(ws.path, "run.sh")) & 0o111).not.toBe(0);
-    expect(await mode(join(ws.path, "exec-new.sh")) & 0o111).not.toBe(0);
+    expect((await mode(join(ws.path, "run.sh"))) & 0o111).not.toBe(0);
+    expect((await mode(join(ws.path, "exec-new.sh"))) & 0o111).not.toBe(0);
     expect(await readlink(join(ws.path, "link"))).toBe("a.txt");
   }
   expect((await inspect(ws)).clean).toBe(true);
@@ -122,7 +126,7 @@ test("agent binary edit, mode change, delete and rename apply to the parent", as
   await put(ws.path, "renamed.txt", "a\n");
   await apply(ws);
   expect(new Uint8Array(await readFile(join(repo, "bin.dat")))).toEqual(changed);
-  if (!win) expect(await mode(join(repo, "run.sh")) & 0o111).not.toBe(0);
+  if (!win) expect((await mode(join(repo, "run.sh"))) & 0o111).not.toBe(0);
   expect(await exists(join(repo, "b.txt"))).toBe(false);
   expect(await exists(join(repo, "a.txt"))).toBe(false);
   expect(await read(repo, "renamed.txt")).toBe("a\n");
@@ -278,13 +282,22 @@ test("inspect counts omitted Unicode characters without retaining the full diff"
   const ws = await create({ repoRoot: repo, id: "unicode" });
   await put(ws.path, "unicode.txt", "😀é\n".repeat(100_000));
   const result = await inspect(ws);
-  const full = await git(ws.path, "diff", "--cached", "--no-ext-diff", "--no-textconv", "--no-renames",
-    "--src-prefix=a/", "--dst-prefix=b/", `refs/pi-subagents/${ws.id}/snapshot`);
+  const full = await git(
+    ws.path,
+    "diff",
+    "--cached",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--no-renames",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    `refs/pi-subagents/${ws.id}/snapshot`,
+  );
   const marker = /\n\[diff truncated: (\d+) characters omitted\]\n$/;
   const prefix = result.diff.replace(marker, "");
   expect(prefix.length).toBeLessThanOrEqual(100_000);
   expect(full.startsWith(prefix)).toBe(true);
-  expect(Number((marker.exec(result.diff))?.[1])).toBe(full.length - prefix.length);
+  expect(Number(marker.exec(result.diff)?.[1])).toBe(full.length - prefix.length);
   expect(prefix).not.toContain("�");
   // Inspection truncation must not truncate the patch subsequently applied.
   await apply(ws);
@@ -300,12 +313,15 @@ test.skipIf(win)("apply uses one frozen tree even if files change during conflic
   const ws = await create({ repoRoot: repo, id: "frozen" });
   await put(ws.path, "a.txt", "agent\n");
   const script = join(tmp, "mutate.cjs");
-  await writeFile(script, `
+  await writeFile(
+    script,
+    `
     const fs = require("node:fs");
     if (fs.realpathSync(process.cwd()) === fs.realpathSync(${JSON.stringify(repo)}))
       fs.writeFileSync(${JSON.stringify(join(ws.path, "b.txt"))}, "late edit\\n");
     process.stdout.write(fs.readFileSync(0));
-  `);
+  `,
+  );
   const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
   await git(repo, "config", "filter.mutate.clean", `${quote(process.execPath)} ${quote(script)}`);
   expect((await apply(ws)).applied).toEqual(["a.txt"]);
@@ -316,10 +332,7 @@ test.skipIf(win)("apply uses one frozen tree even if files change during conflic
 
 test("failed worktree add does not block the next creation", async () => {
   await git(repo, "branch", "pi-subagent/blocked");
-  const [failed, next] = await Promise.allSettled([
-    create({ repoRoot: repo, id: "blocked" }),
-    create({ repoRoot: repo, id: "next" }),
-  ]);
+  const [failed, next] = await Promise.allSettled([create({ repoRoot: repo, id: "blocked" }), create({ repoRoot: repo, id: "next" })]);
   expect(failed.status).toBe("rejected");
   expect(next.status).toBe("fulfilled");
   if (next.status === "fulfilled") expect((await inspect(next.value)).clean).toBe(true);

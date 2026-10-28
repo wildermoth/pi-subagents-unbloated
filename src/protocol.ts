@@ -5,7 +5,10 @@ import { StringDecoder } from "node:string_decoder";
 export type RpcErrorCode = "timeout" | "exit" | "stdin" | "busy" | "protocol";
 
 export class RpcError extends Error {
-  constructor(readonly code: RpcErrorCode, message: string) {
+  constructor(
+    readonly code: RpcErrorCode,
+    message: string,
+  ) {
     super(message);
     this.name = "RpcError";
   }
@@ -122,7 +125,10 @@ export class RpcConnection {
   private exitInfo: ExitInfo | undefined;
   private drainTimer: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(private readonly child: ChildProcess, private readonly opts: RpcOptions) {
+  constructor(
+    private readonly child: ChildProcess,
+    private readonly opts: RpcOptions,
+  ) {
     this.exited = new Promise((r) => (this.resolveExit = r));
     this.framer = new JsonlFramer({
       maxRecordChars: opts.maxRecordChars ?? 16 * 1024 * 1024,
