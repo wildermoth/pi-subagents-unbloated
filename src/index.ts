@@ -4,6 +4,7 @@ import { realpath } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { JobRecord, Jobs } from "./jobs.ts";
 import type { Workspace } from "./isolation.ts";
+import { renderStatus } from "./statusbar.ts";
 import { recover, JOB_ENTRY, UNREAD_ENTRY, WS_ENTRY } from "./recovery.ts";
 import { isDone, line, MAX_DIFF_CHARS, params, requireArgs, text, WAIT_HINT, type Params } from "./schema.ts";
 import type { Runner } from "./types.ts";
@@ -47,6 +48,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     try {
       pi.sendMessage({ customType: "subagent-results", content: inbox.format(records), display: true }, { triggerTurn: wake });
       waking = wake;
+      render();
     } catch (e) {
       inbox.requeue(records); // never lose a result to a failed send
       throw e;
@@ -63,6 +65,15 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     if (idle && !waking) flush(wake);
   };
 
+  /** Refresh the live job widget. Display only; a stale context just skips it. */
+  function render() {
+    try {
+      if (ctx?.hasUI) ctx.ui.setWidget("subagents", renderStatus([...interrupted, ...(state?.jobs.list() ?? [])]));
+    } catch {
+      ctx = undefined; // stale after reload; session_start recaptures
+    }
+  }
+
   function getState() {
     return (pending ??= build());
   }
@@ -77,8 +88,11 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     const jobs = createJobs({
       runner,
       onTerminal: (r) => inbox.publish(r),
-      onChange: ({ id, agent, task, state: s, createdAt, endedAt, delivered }) =>
-        pi.appendEntry(JOB_ENTRY, { id, agent, task, state: s, createdAt, endedAt, delivered }),
+      onChange: ({ id, agent, task, state: s, createdAt, endedAt, delivered }) => {
+        pi.appendEntry(JOB_ENTRY, { id, agent, task, state: s, createdAt, endedAt, delivered });
+        render();
+      },
+      onActivity: render,
     });
     return (state = { jobs, inbox, isWriter });
   }
@@ -89,158 +103,165 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     description: "Delegate to agents: start needs agent (names: action=agents) and task, runs in background. Then end your turn.",
     parameters: params,
     async execute(_id, args, signal, _onUpdate, c) {
-      const p = args as Params;
-      const agentList = async () => {
-        const { discoverAgents, listAgents } = await agentsModule();
-        const { agents, warnings } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
-        return [listAgents(agents), ...warnings].filter(Boolean).join("\n") || "no agents defined";
-      };
       try {
-        requireArgs(p);
-      } catch (e) {
-        // A model that guessed at start without an agent name gets the names in the error, not a second round trip.
-        if (p.action === "start" && !p.agent)
-          throw new Error(`${(e as Error).message}. Available agents:\n${await agentList()}`, { cause: e });
-        throw e;
-      }
-      const { jobs, inbox, isWriter } = await getState();
-      switch (p.action) {
-        case "agents":
-          return text(await agentList());
-        case "start": {
-          const { discoverAgents, resolveAgent } = await agentsModule();
-          const { agents } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
-          const def = resolveAgent(agents, p.agent!);
-          const writes = isWriter(def.tools);
-          let repoKey = c.cwd;
-          let cwd = c.cwd;
-          // Resolve only for writers/isolation, never during registration or discovery.
-          if (writes || p.isolate) {
-            cwd = await realpath(c.cwd);
-            const iso = await isolationModule();
-            repoKey = await iso.repoRootOf(cwd).catch((e) => {
-              if (p.isolate) throw e;
-              return cwd; // non-Git workspaces still serialize through canonical cwd
-            });
-          }
-          let ws: Workspace | undefined;
-          if (p.isolate) {
-            const iso = await isolationModule();
-            const root = repoKey;
-            ws = await iso.create({ repoRoot: root, id: crypto.randomUUID().slice(0, 12) });
-            cwd = join(ws.path, relative(root, cwd)); // root is canonical, so cwd must be too (macOS /var, Windows 8.3 names)
-          }
-          let rec: JobRecord;
-          try {
-            rec = jobs.start({
-              agent: def.name,
-              writes: !ws && writes, // an isolated writer cannot collide with anyone
-              repoKey: ws ? ws.path : repoKey,
-              spec: {
-                cwd,
-                task: p.task!,
-                systemPrompt: def.prompt,
-                tools: def.tools,
-                model: def.model ?? (c.model ? `${c.model.provider}/${c.model.id}` : undefined),
-                thinking: c.thinkingLevel,
-                trusted: c.isProjectTrusted(),
-                timeoutMs: TIMEOUT_MS,
-                launchTimeoutMs: LAUNCH_TIMEOUT_MS,
-              },
-            });
-          } catch (e) {
-            if (ws) {
-              try {
-                await (await isolationModule()).discard(ws);
-              } catch {
-                throw new Error(`${(e as Error).message}; unused worktree left at ${ws.path}`);
-              }
-            }
-            throw e;
-          }
-          if (ws) {
-            workspaces.set(rec.id, ws);
-            rec.note = `worktree kept: diff ${rec.id}, then apply or discard ${rec.id}`;
-            pi.appendEntry(WS_ENTRY, { jobId: rec.id, ws });
-          }
-          if (!p.wait) return text(`started ${rec.id} (${def.name}). Do not poll; results arrive on their own.`);
-          const onAbort = () => void jobs.cancel(rec.id);
-          if (signal?.aborted) onAbort();
-          else signal?.addEventListener("abort", onAbort, { once: true });
-          try {
-            await jobs.wait(rec.id);
-          } finally {
-            signal?.removeEventListener("abort", onAbort);
-          }
-          inbox.take(rec.id); // consumed here, so no wakeup repeats it
-          const out = inbox.format([rec]);
-          if (rec.state === "failed") throw new Error(out);
-          return text(out);
-        }
-        case "list": {
-          const all = [...interrupted, ...jobs.list()];
-          const out = all.map((r) => line(r) + (workspaces.has(r.id) ? " [worktree]" : "")).join("\n") || "no jobs";
-          return text(all.some((r) => !isDone(r) && r.state !== "cancelled" && r.state !== "interrupted") ? `${out}\n${WAIT_HINT}` : out);
-        }
-        case "status": {
-          const r = jobs.get(p.id!) ?? interrupted.find((j) => j.id === p.id);
-          if (!r) throw new Error(`unknown job ${p.id}`);
-          const done = inbox.take(r.id); // reading output consumes it, so no later wakeup repeats it
-          return text(
-            done
-              ? inbox.format([done])
-              : isDone(r) || r.state === "cancelled" || r.state === "interrupted"
-                ? line(r)
-                : `${line(r)}\n${WAIT_HINT}`,
-          );
-        }
-        case "steer":
-          await jobs.steer(p.id!, p.message!);
-          return text(`steered ${p.id}`);
-        case "cancel": {
-          const r = await jobs.cancel(p.id!);
-          inbox.take(r.id); // the caller is told here, a later wakeup would repeat it
-          return text(`${r.id} ${r.state}`);
-        }
-        case "diff": {
-          const { changed, diff, clean } = await (await isolationModule()).inspect(workspaceOf(p.id!));
-          if (clean) return text("no changes");
-          const head = `${changed.length} changed:\n${changed.slice(0, 50).join("\n")}`;
-          const more = diff.length > MAX_DIFF_CHARS ? `\n[diff truncated, ${diff.length - MAX_DIFF_CHARS} more characters]` : "";
-          return text(`${head}\n\n${diff.slice(0, MAX_DIFF_CHARS)}${more}`);
-        }
-        case "apply": {
-          const ws = workspaceOf(p.id!);
-          const iso = await isolationModule();
-          let applied: string[];
-          try {
-            ({ applied } = await iso.apply(ws));
-          } catch (e) {
-            throw new Error(
-              `${(e as Error).message}. Worktree kept at ${ws.path} (branch ${ws.branch}); nothing was changed in your tree.`,
-              { cause: e },
-            );
-          }
-          forget(p.id!);
-          let left = "";
-          try {
-            await iso.discard(ws, { force: true }); // safe: the changes now live in the parent tree
-          } catch (e) {
-            left = `\nworktree cleanup incomplete: ${(e as Error).message}`;
-          }
-          return text(`applied ${applied.length} file(s):\n${applied.join("\n")}${left}`);
-        }
-        case "discard": {
-          const ws = workspaceOf(p.id!);
-          await (await isolationModule()).discard(ws, { force: true });
-          forget(p.id!);
-          return text(`discarded ${p.id}`);
-        }
-        case "inbox":
-          return text(inbox.size ? inbox.format(inbox.drain()) : `no finished jobs pending. ${WAIT_HINT}`);
+        return await runAction(args, signal, c);
+      } finally {
+        render(); // reads and cancels change what is still unread
       }
     },
   });
+
+  async function runAction(args: unknown, signal: AbortSignal | undefined, c: ExtensionContext) {
+    const p = args as Params;
+    const agentList = async () => {
+      const { discoverAgents, listAgents } = await agentsModule();
+      const { agents, warnings } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
+      return [listAgents(agents), ...warnings].filter(Boolean).join("\n") || "no agents defined";
+    };
+    try {
+      requireArgs(p);
+    } catch (e) {
+      // A model that guessed at start without an agent name gets the names in the error, not a second round trip.
+      if (p.action === "start" && !p.agent)
+        throw new Error(`${(e as Error).message}. Available agents:\n${await agentList()}`, { cause: e });
+      throw e;
+    }
+    const { jobs, inbox, isWriter } = await getState();
+    switch (p.action) {
+      case "agents":
+        return text(await agentList());
+      case "start": {
+        const { discoverAgents, resolveAgent } = await agentsModule();
+        const { agents } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
+        const def = resolveAgent(agents, p.agent!);
+        const writes = isWriter(def.tools);
+        let repoKey = c.cwd;
+        let cwd = c.cwd;
+        // Resolve only for writers/isolation, never during registration or discovery.
+        if (writes || p.isolate) {
+          cwd = await realpath(c.cwd);
+          const iso = await isolationModule();
+          repoKey = await iso.repoRootOf(cwd).catch((e) => {
+            if (p.isolate) throw e;
+            return cwd; // non-Git workspaces still serialize through canonical cwd
+          });
+        }
+        let ws: Workspace | undefined;
+        if (p.isolate) {
+          const iso = await isolationModule();
+          const root = repoKey;
+          ws = await iso.create({ repoRoot: root, id: crypto.randomUUID().slice(0, 12) });
+          cwd = join(ws.path, relative(root, cwd)); // root is canonical, so cwd must be too (macOS /var, Windows 8.3 names)
+        }
+        let rec: JobRecord;
+        try {
+          rec = jobs.start({
+            agent: def.name,
+            writes: !ws && writes, // an isolated writer cannot collide with anyone
+            repoKey: ws ? ws.path : repoKey,
+            spec: {
+              cwd,
+              task: p.task!,
+              systemPrompt: def.prompt,
+              tools: def.tools,
+              model: def.model ?? (c.model ? `${c.model.provider}/${c.model.id}` : undefined),
+              thinking: c.thinkingLevel,
+              trusted: c.isProjectTrusted(),
+              timeoutMs: TIMEOUT_MS,
+              launchTimeoutMs: LAUNCH_TIMEOUT_MS,
+            },
+          });
+        } catch (e) {
+          if (ws) {
+            try {
+              await (await isolationModule()).discard(ws);
+            } catch {
+              throw new Error(`${(e as Error).message}; unused worktree left at ${ws.path}`);
+            }
+          }
+          throw e;
+        }
+        if (ws) {
+          workspaces.set(rec.id, ws);
+          rec.note = `worktree kept: diff ${rec.id}, then apply or discard ${rec.id}`;
+          pi.appendEntry(WS_ENTRY, { jobId: rec.id, ws });
+        }
+        if (!p.wait) return text(`started ${rec.id} (${def.name}). Do not poll; results arrive on their own.`);
+        const onAbort = () => void jobs.cancel(rec.id);
+        if (signal?.aborted) onAbort();
+        else signal?.addEventListener("abort", onAbort, { once: true });
+        try {
+          await jobs.wait(rec.id);
+        } finally {
+          signal?.removeEventListener("abort", onAbort);
+        }
+        inbox.take(rec.id); // consumed here, so no wakeup repeats it
+        const out = inbox.format([rec]);
+        if (rec.state === "failed") throw new Error(out);
+        return text(out);
+      }
+      case "list": {
+        const all = [...interrupted, ...jobs.list()];
+        const out = all.map((r) => line(r) + (workspaces.has(r.id) ? " [worktree]" : "")).join("\n") || "no jobs";
+        return text(all.some((r) => !isDone(r) && r.state !== "cancelled" && r.state !== "interrupted") ? `${out}\n${WAIT_HINT}` : out);
+      }
+      case "status": {
+        const r = jobs.get(p.id!) ?? interrupted.find((j) => j.id === p.id);
+        if (!r) throw new Error(`unknown job ${p.id}`);
+        const done = inbox.take(r.id); // reading output consumes it, so no later wakeup repeats it
+        return text(
+          done
+            ? inbox.format([done])
+            : isDone(r) || r.state === "cancelled" || r.state === "interrupted"
+              ? line(r)
+              : `${line(r)}\n${WAIT_HINT}`,
+        );
+      }
+      case "steer":
+        await jobs.steer(p.id!, p.message!);
+        return text(`steered ${p.id}`);
+      case "cancel": {
+        const r = await jobs.cancel(p.id!);
+        inbox.take(r.id); // the caller is told here, a later wakeup would repeat it
+        return text(`${r.id} ${r.state}`);
+      }
+      case "diff": {
+        const { changed, diff, clean } = await (await isolationModule()).inspect(workspaceOf(p.id!));
+        if (clean) return text("no changes");
+        const head = `${changed.length} changed:\n${changed.slice(0, 50).join("\n")}`;
+        const more = diff.length > MAX_DIFF_CHARS ? `\n[diff truncated, ${diff.length - MAX_DIFF_CHARS} more characters]` : "";
+        return text(`${head}\n\n${diff.slice(0, MAX_DIFF_CHARS)}${more}`);
+      }
+      case "apply": {
+        const ws = workspaceOf(p.id!);
+        const iso = await isolationModule();
+        let applied: string[];
+        try {
+          ({ applied } = await iso.apply(ws));
+        } catch (e) {
+          throw new Error(`${(e as Error).message}. Worktree kept at ${ws.path} (branch ${ws.branch}); nothing was changed in your tree.`, {
+            cause: e,
+          });
+        }
+        forget(p.id!);
+        let left = "";
+        try {
+          await iso.discard(ws, { force: true }); // safe: the changes now live in the parent tree
+        } catch (e) {
+          left = `\nworktree cleanup incomplete: ${(e as Error).message}`;
+        }
+        return text(`applied ${applied.length} file(s):\n${applied.join("\n")}${left}`);
+      }
+      case "discard": {
+        const ws = workspaceOf(p.id!);
+        await (await isolationModule()).discard(ws, { force: true });
+        forget(p.id!);
+        return text(`discarded ${p.id}`);
+      }
+      case "inbox":
+        return text(inbox.size ? inbox.format(inbox.drain()) : `no finished jobs pending. ${WAIT_HINT}`);
+    }
+  }
 
   pi.registerCommand("subagents", {
     description: "Show subagent jobs",
@@ -298,6 +319,11 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     flushIfIdle(!e.aborted); // after a user abort, deliver passively instead of restarting the agent
   });
   pi.on("session_shutdown", async () => {
+    try {
+      if (ctx?.hasUI) ctx.ui.setWidget("subagents", undefined);
+    } catch {
+      // stale context: nothing left to clear
+    }
     ctx = undefined;
     const s = await pending?.catch(() => undefined);
     await s?.jobs.shutdown();

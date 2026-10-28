@@ -50,6 +50,17 @@ Invalid combinations (for example `start` without `task`) are rejected with a sh
 
 Concurrency is a fixed limit of 4 running jobs with one queue (first eligible job in FIFO order: a writer blocked on a repository lock is skipped so later runnable jobs can start). At most 64 jobs may be outstanding (running or queued); `start` beyond that is rejected. Results are bounded in size and truncated with an explicit marker.
 
+### Status widget
+
+In interactive mode a small widget above the editor lists live jobs and finished jobs you have not read yet, one line each:
+
+```text
+running | researcher: Looking at the history section of the article on...
+completed | researcher: Three pages summarised: ...
+```
+
+Each line is `state | agent: ` plus the first 80 characters of the job's latest assistant message (its task until it has produced one). At most 5 lines are shown, followed by `+N more` when others are hidden. A job disappears from the widget once its result has been delivered to the model, and the widget is cleared at shutdown. It costs no model context and is not persisted.
+
 ### Worktree isolation
 
 `start` with `isolate: true` runs the child in a fresh git worktree instead of your working tree.
@@ -122,7 +133,7 @@ Precedence: a project agent overrides a user agent of the same name. Within one 
 
 ## Size, dependencies, performance
 
-- Source: 73,212 bytes across 11 files in `src/` (`wc -c src/*.ts`).
+- Source: 76,382 bytes across 12 files in `src/` (`wc -c src/*.ts`).
 - Runtime dependencies: 0. the one peer dependency is `@earendil-works/pi-coding-agent` (`>=1.4.0 <2`), supplied by Pi. `pi-ai` and `typebox` are development dependencies only.
 
 Measured on one machine (Linux under WSL2, Intel Core i5-14400F, Bun 1.3.13, Pi 1.4.0, local zero-delay fake model provider). Figures vary run to run; WSL2 noise is large. Full methodology and more tables are in [PERFORMANCE.md](PERFORMANCE.md).

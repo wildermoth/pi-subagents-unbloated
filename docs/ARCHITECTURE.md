@@ -14,6 +14,7 @@
 | --- | --- |
 | `src/index.ts` | Pi integration: registers the tool and `/subagents`, dispatches actions, session lifecycle hooks, completion delivery. Loads everything else lazily on the first tool call. |
 | `src/schema.ts` | The tool contract: plain JSON Schema, single-source action list and required arguments, shared result strings. |
+| `src/statusbar.ts` | Pure renderer for the live job widget: live plus unread jobs, capped at 5 lines with a hidden-count line. |
 | `src/recovery.ts` | Replays persisted session entries in one pass: job records, live worktrees, unread results. |
 | `src/agents.ts` | On-demand agent discovery, frontmatter parsing via Pi's parser, trust and precedence rules. |
 | `src/runner.ts` | Spawns a child Pi, sends the prompt, observes completion, steers, cancels, terminates. Small `Runner` interface so tests inject a fake. |

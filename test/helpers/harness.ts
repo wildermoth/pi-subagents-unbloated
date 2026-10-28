@@ -47,7 +47,10 @@ export function harness(branch: unknown[] = [], failSend = { on: false }) {
   };
   register(pi as any, runner);
   let idle = true;
+  const widgets: (string[] | undefined)[] = [];
   const ctx = (cwd: string, trusted = true) => ({
+    hasUI: true,
+    ui: { setWidget: (_key: string, lines: string[] | undefined) => void widgets.push(lines) },
     cwd,
     isProjectTrusted: () => trusted,
     isIdle: () => idle,
@@ -55,7 +58,7 @@ export function harness(branch: unknown[] = [], failSend = { on: false }) {
     thinkingLevel: "low",
     sessionManager: { getBranch: () => branch },
   });
-  return { handlers, sent, entries, tool, ctls, ctx, setIdle: (v: boolean) => (idle = v) };
+  return { handlers, sent, entries, tool, ctls, ctx, widgets, setIdle: (v: boolean) => (idle = v) };
 }
 
 export async function project(dirs: string[]) {

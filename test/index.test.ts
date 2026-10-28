@@ -102,6 +102,22 @@ test("steer and cancel reach the child", async () => {
   await expect(run(h, cwd, { action: "steer", id, message: "late" })).rejects.toThrow();
 });
 
+test("the widget shows live jobs and clears once their results are delivered", async () => {
+  const cwd = await project();
+  const h = harness();
+  h.handlers.session_start!({}, h.ctx(cwd));
+  await run(h, cwd, { action: "start", agent: "scout", task: "look around" });
+  expect(h.widgets.at(-1)).toEqual(["running | scout: look around"]);
+  h.ctls[0]!.spec.onActivity!("found the thing");
+  expect(h.widgets.at(-1)).toEqual(["running | scout: found the thing"]);
+  h.setIdle(false); // mid-turn: no wakeup, so the finished job stays visible until read
+  h.ctls[0]!.finish(ok("found it"));
+  await tick();
+  expect(h.widgets.at(-1)?.[0]).toMatch(/^completed \| scout/);
+  await run(h, cwd, { action: "inbox" });
+  expect(h.widgets.at(-1)).toBeUndefined();
+});
+
 test("start without an agent names the available agents in the error", async () => {
   const cwd = await project();
   const h = harness();
