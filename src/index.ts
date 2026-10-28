@@ -1,22 +1,34 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { StringEnum } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
-import { createInbox, type Inbox } from "./inbox.ts";
-import { createJobs, isWriter, restoreInterrupted, type JobRecord, type Jobs } from "./jobs.ts";
+import type { Inbox } from "./inbox.ts";
+import type { JobRecord, Jobs } from "./jobs.ts";
 import type { Runner } from "./types.ts";
 
 const TIMEOUT_MS = 30 * 60_000;
 const LAUNCH_TIMEOUT_MS = 30_000;
 const JOB_ENTRY = "subagent-job";
 
-const params = Type.Object({
-  action: StringEnum(["start", "list", "status", "steer", "cancel", "agents", "inbox"] as const),
-  agent: Type.Optional(Type.String()),
-  task: Type.Optional(Type.String({ description: "Self-contained brief; the agent sees nothing else" })),
-  id: Type.Optional(Type.String()),
-  message: Type.Optional(Type.String()),
-  wait: Type.Optional(Type.Boolean({ description: "Block until finished (default: background)" })),
-});
+/** Plain JSON Schema: avoids loading typebox and pi-ai at startup. */
+const params = {
+  type: "object",
+  properties: {
+    action: { type: "string", enum: ["start", "list", "status", "steer", "cancel", "agents", "inbox"] },
+    agent: { type: "string" },
+    task: { type: "string", description: "Self-contained brief; the agent sees nothing else" },
+    id: { type: "string" },
+    message: { type: "string" },
+    wait: { type: "boolean", description: "Block until finished (default: background)" },
+  },
+  required: ["action"],
+} as never;
+
+interface Params {
+  action: "start" | "list" | "status" | "steer" | "cancel" | "agents" | "inbox";
+  agent?: string;
+  task?: string;
+  id?: string;
+  message?: string;
+  wait?: boolean;
+}
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: undefined });
 let agentsMod: Promise<typeof import("./agents.ts")> | undefined;
@@ -26,8 +38,8 @@ const line = (r: JobRecord) => `${r.id} ${r.agent} ${r.state}${r.delivered ? "" 
 
 export default function (pi: ExtensionAPI, injected?: Runner) {
   let ctx: ExtensionContext | undefined;
-  let state: { jobs: Jobs; inbox: Inbox } | undefined;
-  let pending: Promise<{ jobs: Jobs; inbox: Inbox }> | undefined; // parallel first calls must share one state
+  let state: { jobs: Jobs; inbox: Inbox; isWriter: (tools?: string[]) => boolean } | undefined;
+  let pending: ReturnType<typeof build> | undefined; // parallel first calls must share one state
   let interrupted: JobRecord[] = [];
 
   /** Wake the orchestrator with everything finished and unread, once. */
@@ -48,7 +60,12 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     return (pending ??= build());
   }
   async function build() {
-    const runner = injected ?? (await import("./runner.ts")).createRunner();
+    // Lazy: nothing but the tool declaration loads at startup.
+    const [{ createInbox }, { createJobs, isWriter }, runner] = await Promise.all([
+      import("./inbox.ts"),
+      import("./jobs.ts"),
+      injected ?? import("./runner.ts").then((m) => m.createRunner()),
+    ]);
     const inbox = createInbox({ onPublish: flushIfIdle });
     const jobs = createJobs({
       runner,
@@ -56,7 +73,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
       onChange: ({ id, agent, task, state: s, createdAt, endedAt, delivered }) =>
         pi.appendEntry(JOB_ENTRY, { id, agent, task, state: s, createdAt, endedAt, delivered }),
     });
-    return (state = { jobs, inbox });
+    return (state = { jobs, inbox, isWriter });
   }
 
   pi.registerTool({
@@ -64,12 +81,13 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     label: "Subagent",
     description: "Delegate tasks to independent agents. action=agents lists them; start runs one (background unless wait).",
     parameters: params,
-    async execute(_id, p, signal, _onUpdate, c) {
+    async execute(_id, args, signal, _onUpdate, c) {
+      const p = args as Params;
       const need = (...k: ("agent" | "task" | "id" | "message")[]) => {
         const missing = k.filter((x) => !p[x]);
         if (missing.length) throw new Error(`${p.action} requires ${missing.join(", ")}`);
       };
-      const { jobs, inbox } = await getState();
+      const { jobs, inbox, isWriter } = await getState();
       switch (p.action) {
         case "agents": {
           const { discoverAgents, listAgents } = await agentsModule();
@@ -143,11 +161,13 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     },
   });
 
-  pi.on("session_start", (_e, c) => {
+  pi.on("session_start", async (_e, c) => {
     ctx = c;
     const seen = c.sessionManager.getBranch()
       .filter((e) => e.type === "custom" && e.customType === JOB_ENTRY)
       .map((e) => (e as { data: JobRecord }).data);
+    if (!seen.length) return;
+    const { restoreInterrupted } = await import("./jobs.ts");
     interrupted = restoreInterrupted(seen).filter((r) => r.state === "interrupted" && !seen.some((s) => s.id === r.id && s.state === "interrupted"));
     for (const r of interrupted) pi.appendEntry(JOB_ENTRY, r);
     if (interrupted.length)

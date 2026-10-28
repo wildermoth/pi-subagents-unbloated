@@ -190,10 +190,10 @@ test("abort signal cancels a waited job", async () => {
   expect(h.ctls[0]!.cancelled).toBe(1);
 });
 
-test("restart reports running jobs as interrupted once, without waking", () => {
+test("restart reports running jobs as interrupted once, without waking", async () => {
   const rec = { id: "j1", agent: "scout", task: "t", state: "running", createdAt: 1, delivered: false };
   const h = harness([{ type: "custom", customType: "subagent-job", data: rec }]);
-  h.handlers.session_start!({}, h.ctx("/tmp"));
+  await h.handlers.session_start!({}, h.ctx("/tmp"));
   expect(h.sent[0]!.msg.content).toContain("j1");
   expect(h.sent[0]!.opts.triggerTurn).toBe(false);
   expect(h.entries[0]!.data.state).toBe("interrupted");
