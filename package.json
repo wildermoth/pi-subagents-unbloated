@@ -1,8 +1,31 @@
 {
   "name": "pi-subagents-unbloated",
+  "version": "0.0.0",
+  "description": "Subagents for Pi. Nothing else.",
   "type": "module",
-  "keywords": ["pi-package"],
+  "license": "MIT",
+  "keywords": [
+    "pi-package"
+  ],
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5",
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@earendil-works/pi-ai": "^1.4.0",
+    "typebox": "^1.4.3"
   }
 }
