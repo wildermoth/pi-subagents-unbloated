@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeAgentDir, sse, startFakeServer, chunk, textReply, usage } from "./helpers/fake-provider.ts";
 import { createSdkRunner } from "../src/sdk-runner.ts";
-import type { RunSpec } from "../src/types.ts";
+import type { Progress, RunSpec } from "../src/types.ts";
 
 const enabled = process.env.PI_INTEGRATION === "1";
 const T = (name: string, fn: () => Promise<void>) => test.skipIf(!enabled)(name, fn, 60_000);
@@ -103,6 +103,19 @@ T("an allowed tool runs inside the session and its output reaches the model", as
   const r = await createSdkRunner().start(spec({ tools: ["read"] })).done;
   expect(r.status).toBe("completed");
   expect(r.text).toContain("SECRET-CONTENT-42");
+});
+
+T("progress reaches the widget from a real SDK session: tool calls, turns and context size", async () => {
+  script = "tool-then-text";
+  const seen: Progress[] = [];
+  const r = await createSdkRunner().start(spec({ tools: ["read"], onProgress: (p) => seen.push(p) })).done;
+  expect(r.status).toBe("completed");
+  const last = seen.at(-1)!;
+  expect(last.tools).toBe(1);
+  expect(last.turns).toBeGreaterThanOrEqual(2); // the tool-calling turn and the answer
+  expect(last.tokens).toBeGreaterThan(0);
+  expect(last.text).toContain("SECRET-CONTENT-42");
+  expect(seen.some((p) => p.active.includes("read"))).toBe(true);
 });
 
 T("a provider HTTP error fails as a provider failure", async () => {

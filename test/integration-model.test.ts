@@ -9,7 +9,7 @@ import { makeAgentDir, sse, startFakeServer, chunk, textReply, usage } from "./h
 import { RpcConnection } from "../src/protocol.ts";
 import { resolvePiCommand } from "../src/pi-command.ts";
 import { buildArgs, createRunner } from "../src/runner.ts";
-import type { RunSpec } from "../src/types.ts";
+import type { Progress, RunSpec } from "../src/types.ts";
 
 const enabled = process.env.PI_INTEGRATION === "1";
 const T = (name: string, fn: () => Promise<void>) => test.skipIf(!enabled)(name, fn, 60_000);
@@ -130,6 +130,18 @@ function rawPi(extraArgs: string[] = [], dropArgs: string[] = []) {
 }
 
 describe("real pi + fake provider", () => {
+  T("a real child reports progress: tool calls, turns and context size", async () => {
+    script = "tool-then-text";
+    const seen: Progress[] = [];
+    const r = await runner().start(spec({ tools: ["read"], onProgress: (p) => seen.push(p) })).done;
+    expect(r.status).toBe("completed");
+    const last = seen.at(-1)!;
+    expect(last.tools).toBe(1);
+    expect(last.turns).toBeGreaterThanOrEqual(2);
+    expect(last.tokens).toBeGreaterThan(0);
+    expect(seen.some((p) => p.active.includes("read"))).toBe(true);
+  });
+
   T("(a,b) ack is 'started', then agent_end, then agent_settled; event shapes", async () => {
     script = "text";
     const p = rawPi();
