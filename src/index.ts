@@ -42,6 +42,8 @@ const agentsModule = () => (agentsMod ??= import("./agents.ts"));
 let isoMod: Promise<typeof import("./isolation.ts")> | undefined;
 const isolationModule = () => (isoMod ??= import("./isolation.ts"));
 const WS_ENTRY = "subagent-workspace";
+const UNREAD_ENTRY = "subagent-unread"; // results finished but never read when the session ended
+const isDone = (r: JobRecord) => r.state === "completed" || r.state === "failed";
 const MAX_DIFF_CHARS = 6000;
 const line = (r: JobRecord) => `${r.id} ${r.agent} ${r.state}${r.delivered ? "" : r.result ? " (unread)" : ""}: ${r.task.slice(0, 60)}`;
 
@@ -256,6 +258,25 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     },
   });
 
+  /** Show results that finished unread before the last shutdown, once, without waking the agent. */
+  async function surfaceUnread(c: ExtensionContext) {
+    const unread = new Map<string, JobRecord>();
+    for (const e of c.sessionManager.getBranch()) {
+      if (e.type !== "custom" || e.customType !== UNREAD_ENTRY) continue;
+      const d = (e as { data: { records?: JobRecord[]; ack?: string[] } }).data;
+      for (const r of d.records ?? []) unread.set(r.id, r);
+      for (const id of d.ack ?? []) unread.delete(id);
+    }
+    if (!unread.size) return;
+    const records = [...unread.values()];
+    const { createInbox } = await import("./inbox.ts");
+    pi.sendMessage(
+      { customType: "subagent-results", content: `Unread results from before the restart:\n\n${createInbox().format(records)}`, display: true },
+      { triggerTurn: false },
+    );
+    pi.appendEntry(UNREAD_ENTRY, { ack: records.map((r) => r.id) });
+  }
+
   pi.on("session_start", async (_e, c) => {
     ctx = c;
     const seen = c.sessionManager.getBranch()
@@ -268,6 +289,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
       if (d.discarded) workspaces.delete(d.jobId);
       else if (d.ws) workspaces.set(d.jobId, d.ws);
     }
+    await surfaceUnread(c);
     if (!seen.length) return;
     const { restoreInterrupted } = await import("./jobs.ts");
     interrupted = restoreInterrupted(seen).filter((r) => r.state === "interrupted" && !seen.some((s) => s.id === r.id && s.state === "interrupted"));
@@ -290,6 +312,8 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     ctx = undefined;
     const s = await pending?.catch(() => undefined);
     await s?.jobs.shutdown();
+    const unread = s ? s.inbox.drain().filter(isDone) : []; // shutdown-cancelled jobs are noise; real results are kept
+    if (unread.length) pi.appendEntry(UNREAD_ENTRY, { records: unread });
     pending = state = undefined;
   });
 }

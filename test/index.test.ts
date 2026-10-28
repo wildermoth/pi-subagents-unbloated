@@ -208,3 +208,30 @@ test("no second wake while one is in flight, cleared when the agent starts", asy
   expect(h.sent.length).toBe(2);
   expect(h.sent[1]!.msg.content).toContain("B done");
 });
+
+test("results unread at shutdown are shown once after the restart, without waking", async () => {
+  const cwd = await project();
+  const h = harness();
+  h.handlers.session_start!({}, h.ctx(cwd));
+  await run(h, cwd, { action: "start", agent: "scout", task: "a" });
+  await run(h, cwd, { action: "start", agent: "scout", task: "b" });
+  h.setIdle(false);
+  h.ctls[0]!.finish(ok("A finished unread"));
+  await tick();
+  await h.handlers.session_shutdown!({ reason: "quit" }, h.ctx(cwd)); // B is cancelled by shutdown, A is real
+  const unread = h.entries.filter((e) => e.type === "subagent-unread");
+  expect(unread.length).toBe(1);
+  expect(unread[0]!.data.records.map((r: any) => r.id).length).toBe(1);
+
+  const branch = h.entries.map((e) => ({ type: "custom", customType: e.type, data: e.data }));
+  const h2 = harness(branch);
+  await h2.handlers.session_start!({}, h2.ctx(cwd));
+  expect(h2.sent.length).toBe(1);
+  expect(h2.sent[0]!.msg.content).toContain("A finished unread");
+  expect(h2.sent[0]!.opts.triggerTurn).toBe(false);
+
+  const branch2 = [...branch, ...h2.entries.map((e) => ({ type: "custom", customType: e.type, data: e.data }))];
+  const h3 = harness(branch2);
+  await h3.handlers.session_start!({}, h3.ctx(cwd)); // acked, so not shown again
+  expect(h3.sent.length).toBe(0);
+});

@@ -112,7 +112,7 @@ Precedence: a project agent overrides a user agent of the same name. Within one 
 ## Limitations
 
 - Tool allowlists are not a sandbox. Children share the filesystem, network, credentials, and environment of the parent user. There is no custom sandbox in this package.
-- Background means non-blocking for the parent turn, not durable. Jobs do not survive Pi exiting. After a restart, jobs that were running are reported as `interrupted`; they are not resumed or restarted.
+- Background means non-blocking for the parent turn, not durable. Jobs do not survive Pi exiting. After a restart, jobs that were running are reported as `interrupted`; they are not resumed or restarted. Results that had finished but were never read are saved at shutdown and shown once, without waking the agent, at the next start.
 - Process isolation is not filesystem isolation. Read-only agents may run concurrently, but only one unisolated writer runs per working directory at a time (`bash` counts as writing); others queue. Use `isolate: true` to run writers in parallel.
 - No automatic retries. A failed task is reported and left to the parent to decide, since retrying may repeat side effects.
 - No recursive subagents: children cannot launch children.
