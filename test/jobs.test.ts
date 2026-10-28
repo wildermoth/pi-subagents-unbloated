@@ -74,18 +74,19 @@ describe("jobs", () => {
     expect(terminal.map((r) => r.id)).toEqual([a.id]);
   });
 
-  test("activity from the child updates the record and notifies, until the job ends", async () => {
+  test("progress from the child updates the record and notifies, until the job ends", async () => {
     const f = fake();
-    const seen: string[] = [];
-    const jobs = createJobs({ runner: f.runner, onActivity: (r) => seen.push(r.activity ?? "") });
+    const seen: number[] = [];
+    const jobs = createJobs({ runner: f.runner, onProgress: (r) => seen.push(r.progress!.turns) });
     const a = jobs.start(req());
-    f.children[0]!.spec.onActivity!("halfway there");
-    expect(a.activity).toBe("halfway there");
+    const progress = (turns: number) => ({ turns, tools: 0, tokens: 0, active: [], text: "" });
+    f.children[0]!.spec.onProgress!(progress(1));
+    expect(a.progress?.turns).toBe(1);
     f.children[0]!.finish(ok());
     await jobs.wait(a.id);
-    f.children[0]!.spec.onActivity!("too late");
-    expect(a.activity).toBe("halfway there");
-    expect(seen).toEqual(["halfway there"]);
+    f.children[0]!.spec.onProgress!(progress(2));
+    expect(a.progress?.turns).toBe(1);
+    expect(seen).toEqual([1]);
   });
 
   test("states observed forward only via onChange", async () => {

@@ -1,4 +1,4 @@
-import type { Child, RunResult, RunSpec, Runner } from "./types.ts";
+import type { Child, Progress, RunResult, RunSpec, Runner } from "./types.ts";
 
 export type JobState = "queued" | "starting" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
 
@@ -16,8 +16,10 @@ export interface JobRecord {
   delivered: boolean;
   /** Shown to the model with the result, e.g. where isolated work was kept. */
   note?: string;
-  /** Latest assistant text, for the status widget only. Never persisted. */
-  activity?: string;
+  /** Live counters for the status widget only. Never persisted. */
+  progress?: Progress;
+  /** Context window of the model it runs on, to show context use as a percentage. Display only. */
+  contextWindow?: number;
 }
 
 export interface StartRequest {
@@ -68,8 +70,8 @@ export function createJobs(opts: {
   maxHistory?: number;
   onTerminal?: (r: JobRecord) => void;
   onChange?: (r: JobRecord) => void;
-  /** The job produced output; `activity` is updated. Display hook only. */
-  onActivity?: (r: JobRecord) => void;
+  /** `progress` was updated. Display hook only. */
+  onProgress?: (r: JobRecord) => void;
   now?: () => number;
   id?: () => string;
 }): Jobs {
@@ -135,10 +137,10 @@ export function createJobs(opts: {
     try {
       child = opts.runner.start({
         ...e.req.spec,
-        onActivity: (t) => {
-          if (isTerminal(e.rec.state) || !t.trim()) return;
-          e.rec.activity = t.slice(0, 200);
-          notify(opts.onActivity, e.rec);
+        onProgress: (p) => {
+          if (isTerminal(e.rec.state)) return;
+          e.rec.progress = p;
+          notify(opts.onProgress, e.rec);
         },
       });
     } catch (err) {

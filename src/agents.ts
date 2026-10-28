@@ -144,3 +144,9 @@ export function briefAgents(agents: Map<string, AgentDef>, blurbChars = 60): str
     .map((a) => `${a.name}: ${clip(a.description, blurbChars)}`)
     .join("\n");
 }
+
+/** "provider/model-id" where the id may itself contain slashes. */
+export function splitModel(ref: string): { provider: string; id: string } | undefined {
+  const i = ref.indexOf("/");
+  return i > 0 && i < ref.length - 1 ? { provider: ref.slice(0, i), id: ref.slice(i + 1) } : undefined;
+}
