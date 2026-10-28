@@ -22,6 +22,7 @@ async function repo() {
   await sh(cwd, "init", "-q");
   await sh(cwd, "config", "user.email", "t@t");
   await sh(cwd, "config", "user.name", "t");
+  await sh(cwd, "config", "core.autocrlf", "false");
   await mkdir(join(cwd, ".pi", "agents"), { recursive: true });
   await writeFile(join(cwd, ".pi", "agents", "worker.md"), "---\nname: worker\ndescription: Edit\ntools: read,bash,edit,write\n---\nWork.");
   await writeFile(join(cwd, "a.txt"), "one\n");

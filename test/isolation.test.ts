@@ -20,6 +20,7 @@ async function put(root: string, rel: string, data: string | Uint8Array) {
 const read = (root: string, rel: string) => readFile(join(root, rel), "utf8");
 const exists = (p: string) => lstat(p).then(() => true, () => false);
 const mode = async (p: string) => (await lstat(p)).mode & 0o777;
+const win = process.platform === "win32"; // no exec bits or reliable symlinks/chmod there
 const BIN = new Uint8Array([0, 1, 2, 255, 254, 0, 7, 128]);
 
 async function initRepo(dir: string) {
@@ -27,6 +28,7 @@ async function initRepo(dir: string) {
   await git(dir, "init", "-q", "-b", "main");
   await git(dir, "config", "user.name", "t");
   await git(dir, "config", "user.email", "t@t");
+  await git(dir, "config", "core.autocrlf", "false"); // Windows runners default to true, which turns "a\n" into "a\r\n"
   await put(dir, "a.txt", "a\n");
   await put(dir, "b.txt", "b\n");
   await put(dir, "run.sh", "#!/bin/sh\n");
@@ -84,15 +86,19 @@ test("ignored files are not carried", async () => {
 test("binary, symlink and mode changes are carried", async () => {
   const changed = new Uint8Array([9, 0, 9, 0, 255]);
   await put(repo, "bin.dat", changed);
-  await chmod(join(repo, "run.sh"), 0o755);
-  await put(repo, "exec-new.sh", "x\n");
-  await chmod(join(repo, "exec-new.sh"), 0o755);
-  await symlink("a.txt", join(repo, "link"));
+  if (!win) {
+    await chmod(join(repo, "run.sh"), 0o755);
+    await put(repo, "exec-new.sh", "x\n");
+    await chmod(join(repo, "exec-new.sh"), 0o755);
+    await symlink("a.txt", join(repo, "link"));
+  }
   const ws = await create({ repoRoot: repo, id: "j" });
   expect(new Uint8Array(await readFile(join(ws.path, "bin.dat")))).toEqual(changed);
-  expect(await mode(join(ws.path, "run.sh")) & 0o111).not.toBe(0);
-  expect(await mode(join(ws.path, "exec-new.sh")) & 0o111).not.toBe(0);
-  expect(await readlink(join(ws.path, "link"))).toBe("a.txt");
+  if (!win) {
+    expect(await mode(join(ws.path, "run.sh")) & 0o111).not.toBe(0);
+    expect(await mode(join(ws.path, "exec-new.sh")) & 0o111).not.toBe(0);
+    expect(await readlink(join(ws.path, "link"))).toBe("a.txt");
+  }
   expect((await inspect(ws)).clean).toBe(true);
 });
 
@@ -110,13 +116,13 @@ test("agent binary edit, mode change, delete and rename apply to the parent", as
   const ws = await create({ repoRoot: repo, id: "j" });
   const changed = new Uint8Array([5, 4, 0, 3]);
   await put(ws.path, "bin.dat", changed);
-  await chmod(join(ws.path, "run.sh"), 0o755);
+  if (!win) await chmod(join(ws.path, "run.sh"), 0o755);
   await rm(join(ws.path, "b.txt"));
   await rm(join(ws.path, "a.txt"));
   await put(ws.path, "renamed.txt", "a\n");
   await apply(ws);
   expect(new Uint8Array(await readFile(join(repo, "bin.dat")))).toEqual(changed);
-  expect(await mode(join(repo, "run.sh")) & 0o111).not.toBe(0);
+  if (!win) expect(await mode(join(repo, "run.sh")) & 0o111).not.toBe(0);
   expect(await exists(join(repo, "b.txt"))).toBe(false);
   expect(await exists(join(repo, "a.txt"))).toBe(false);
   expect(await read(repo, "renamed.txt")).toBe("a\n");
@@ -157,7 +163,8 @@ test("apply on a non-conflicting parent change succeeds", async () => {
   expect(await read(repo, "b.txt")).toBe("parent-b\n");
 });
 
-test("apply failure leaves worktree and parent intact", async () => {
+// Windows git replaces the blocking file with a directory instead of failing, so this trigger is POSIX-only.
+test.skipIf(win)("apply failure leaves worktree and parent intact", async () => {
   const ws = await create({ repoRoot: repo, id: "j" });
   await put(ws.path, "dir/x.txt", "x\n");
   await put(repo, "dir", "i am a file\n"); // git apply cannot create dir/x.txt
@@ -215,7 +222,8 @@ test("custom baseDir is honoured", async () => {
   expect(await exists(join(ws.path, "a.txt"))).toBe(true);
 });
 
-test("carry failure keeps a modified worktree and reports its path", async () => {
+// chmod 000 does not make a file unreadable on Windows, so the failure cannot be provoked there.
+test.skipIf(win)("carry failure keeps a modified worktree and reports its path", async () => {
   await put(repo, "u1.txt", "1\n");
   await put(repo, "u2.txt", "2\n");
   await chmod(join(repo, "u2.txt"), 0o000);
