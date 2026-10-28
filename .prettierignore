@@ -1,0 +1,5 @@
+node_modules
+bun.lock
+bench/poc
+PERFORMANCE.md
+*.md
