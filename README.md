@@ -36,7 +36,7 @@ subagent({ action, agent?, task?, id?, message?, wait?, isolate? })
 | Action | Needs | What it does |
 | --- | --- | --- |
 | `agents` | none | List available agent definitions, plus discovery warnings. |
-| `start` | `agent`, `task` | Launch a child. Returns a job id immediately; with `wait: true` blocks until the job finishes and returns its result. `task` must be self-contained: the child sees nothing of the parent conversation. With `isolate: true` the child runs in its own git worktree (see below). |
+| `start` | `agent`, `task` | Launch a child. Returns a job id immediately; with `wait: true` blocks until the job finishes and returns its result. `task` must be self-contained: the child sees nothing of the parent conversation, though Pi still loads project `AGENTS.md`/`CLAUDE.md` files for its working directory. With `isolate: true` the child runs in its own git worktree (see below). |
 | `list` | none | One line per job (including jobs interrupted by a restart). Does not consume results. |
 | `status` | `id` | Live state of one job without loading a transcript. If the job has finished, asking for it returns its result and marks it delivered. |
 | `steer` | `id`, `message` | Send a message to a running job. Rejected once the job has ended. |
@@ -48,7 +48,7 @@ subagent({ action, agent?, task?, id?, message?, wait?, isolate? })
 
 Invalid combinations (for example `start` without `task`) are rejected with a short error. A `/subagents` command shows the job list.
 
-Concurrency is a fixed limit of 4 running jobs with one FIFO queue. Results are bounded in size and truncated with an explicit marker.
+Concurrency is a fixed limit of 4 running jobs with one queue (first eligible job in FIFO order: a writer blocked on a repository lock is skipped so later runnable jobs can start). At most 64 jobs may be outstanding (running or queued); `start` beyond that is rejected. Results are bounded in size and truncated with an explicit marker.
 
 ### Worktree isolation
 
@@ -123,7 +123,7 @@ Precedence: a project agent overrides a user agent of the same name. Within one 
 ## Size, dependencies, performance
 
 - Source: 69,040 bytes across 8 files in `src/` (`wc -c src/*.ts`).
-- Runtime dependencies: 0. `peerDependencies` are `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, and `typebox`, all supplied by Pi.
+- Runtime dependencies: 0. the one peer dependency is `@earendil-works/pi-coding-agent` (`>=1.4.0 <2`), supplied by Pi. `pi-ai` and `typebox` are development dependencies only.
 
 Measured on one machine (Linux under WSL2, Intel Core i5-14400F, Bun 1.3.13, Pi 1.4.0, local zero-delay fake model provider). Figures vary run to run; WSL2 noise is large. Full methodology and more tables are in [PERFORMANCE.md](PERFORMANCE.md).
 

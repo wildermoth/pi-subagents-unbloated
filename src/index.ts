@@ -16,7 +16,7 @@ const params = {
   properties: {
     action: { type: "string", enum: ["start", "list", "status", "steer", "cancel", "agents", "inbox", "diff", "apply", "discard"] },
     agent: { type: "string" },
-    task: { type: "string", description: "Self-contained brief; the agent sees nothing else" },
+    task: { type: "string", description: "Self-contained brief; no parent conversation is passed (project AGENTS.md/CLAUDE.md still load)" },
     id: { type: "string" },
     message: { type: "string" },
     wait: { type: "boolean", description: "Block until finished (default: background)" },

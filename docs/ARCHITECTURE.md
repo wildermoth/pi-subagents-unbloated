@@ -16,7 +16,7 @@
 | `src/agents.ts` | On-demand agent discovery, frontmatter parsing via Pi's parser, trust and precedence rules. |
 | `src/runner.ts` | Spawns a child Pi, sends the prompt, observes completion, steers, cancels, terminates. Small `Runner` interface so tests inject a fake. Resolves the Pi command (`PI_BIN`, then this process's own Pi entry, then `pi` on PATH). |
 | `src/protocol.ts` | RPC adapter: LF-framed JSONL, command-id correlation, events, bounded buffers. |
-| `src/jobs.ts` | Job table, FIFO queue, state machine, writer lock per canonical repository (canonical cwd outside Git), exactly-once slot release, restore of interrupted jobs. |
+| `src/jobs.ts` | Job table, queue (first eligible job in FIFO order; a writer blocked on its repository lock is skipped), outstanding-job cap, state machine, writer lock per canonical repository (canonical cwd outside Git), exactly-once slot release, restore of interrupted jobs. |
 | `src/inbox.ts` | Per-session inbox of finished jobs: publish once, drain, take one, bounded formatting. |
 | `src/types.ts` | Cross-module types only. |
 
