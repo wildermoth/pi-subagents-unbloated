@@ -46,20 +46,26 @@ subagent({ action, agent?, task?, id?, message?, wait?, isolate? })
 | `apply` | `id` | Apply an isolated job's changes to your working tree, then remove its worktree. Only after the job has ended. |
 | `discard` | `id` | Throw away an isolated job's worktree and branch. Explicit, and only after the job has ended. |
 
-Invalid combinations (for example `start` without `task`) are rejected with a short error. A `/subagents` command shows the job list.
+Invalid combinations (for example `start` without `task`) are rejected with a short error. A `/subagents` command shows the job list, and `/subagent-model` opens a menu to pick an agent's model and thinking level (see Agent definitions).
 
 Concurrency is limited per backend: 6 child processes and 50 in-process agents at once, with one strict FIFO queue per backend (a full backend never blocks the other). At most 128 jobs may be outstanding (running or queued); `start` beyond that is rejected. Results are bounded in size and truncated with an explicit marker.
 
 ### Status widget
 
-In interactive mode a small widget above the editor lists live jobs and finished jobs you have not read yet, one line each:
+In the terminal UI a widget above the editor shows running jobs and finished jobs you have not read yet:
 
 ```text
-running | researcher: Looking at the history section of the article on...
-completed | researcher: Three pages summarised: ...
+● Agents
+├─ ⠹ researcher  Find three random Wikipedia pages · 14.2s
+│      ⎿  Looking at the history section of the article on...
+├─ ✓ scout  map the tests · 3.1s
+└─ ◦ 2 queued
 ```
 
-Each line is `state | agent: ` plus the first 80 characters of the job's latest assistant message (its task until it has produced one). At most 5 lines are shown, followed by `+N more` when others are hidden. A job disappears from the widget once its result has been delivered to the model, and the widget is cleared at shutdown. It costs no model context and is not persisted.
+- A braille spinner marks running jobs, with elapsed time and, underneath, the first 80 characters of their latest assistant message. Finished jobs show `✓` (done), `✗` (failed, with the error) or `■` (cancelled).
+- At most 5 jobs are listed. Further ones collapse into a final `◦ +N more, M queued` row.
+- A finished job leaves the widget once its result has been delivered to the model. The widget clears when nothing is left, and it only animates while a job is running.
+- It costs no model context, is not persisted, and is skipped outside the terminal UI.
 
 ### Worktree isolation
 
@@ -101,9 +107,12 @@ You are a careful code reviewer. Report concrete problems with file and line.
 | `description` | yes | Shown by `agents`. |
 | `tools` | no | Comma-separated allowlist passed to the child. Omitted means Pi's default tools. |
 | `model` | no | A Pi model id, or `inherit` (default) to use the parent's current model. |
+| `thinking` | no | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Omitted means the parent's current level. |
 | `inprocess` | no | `true` runs the agent in the parent process through Pi's SDK instead of a child Pi process (default `false`). See below. |
 
 The body is appended to the child's system prompt.
+
+`/subagent-model` edits `model` and `thinking` for you: choose an agent, then a model (or `inherit`), then a thinking level (or `inherit`). The model list is your scoped models (`enabledModels` or `--models`) when you have set any, otherwise every model with credentials. The choice is written into the agent's own file, which is the only thing it changes; the model is quoted so ids containing `:` survive.
 
 ### In-process agents
 
