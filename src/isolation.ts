@@ -37,6 +37,8 @@ const MAX_DIFF = 100_000;
 const DIFF = ["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/"];
 // hooks off: isolation plumbing must not run user hooks
 const QUIET = ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false"];
+// Git worktree add inspects sibling admin directories, which must be fully created.
+const worktreeAdds = new Map<string, Promise<Uint8Array>>();
 const snapRef = (id: string) => `refs/pi-subagents/${id}/snapshot`;
 
 interface Out { code: number; out: Uint8Array; err: string; omitted: number }
@@ -117,12 +119,17 @@ export async function create(opts: { repoRoot: string; id: string; baseDir?: str
   const head = await run(repoRoot, ["rev-parse", "--verify", "-q", "HEAD^{commit}"]);
   if (head.code !== 0) throw new IsolationError("git", `repository has no commits: ${repoRoot}`, repoRoot);
   const baseCommit = text(head.out).trim();
-  const common = await gitText(repoRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  const common = await realpath(await gitText(repoRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"]));
   const baseDir = opts.baseDir ?? join(common, "pi-subagents");
   const path = join(baseDir, id);
   const branch = `pi-subagent/${id}`;
   await mkdir(baseDir, { recursive: true });
-  await git(repoRoot, [...QUIET, "worktree", "add", "-q", "-b", branch, path, baseCommit]);
+  const previous = worktreeAdds.get(common) ?? Promise.resolve();
+  const adding = previous.catch(() => {}).then(() =>
+    git(repoRoot, [...QUIET, "worktree", "add", "-q", "-b", branch, path, baseCommit]));
+  worktreeAdds.set(common, adding);
+  try { await adding; }
+  finally { if (worktreeAdds.get(common) === adding) worktreeAdds.delete(common); }
   const ws: Workspace = { id, repoRoot, path, branch, baseCommit };
 
   try {

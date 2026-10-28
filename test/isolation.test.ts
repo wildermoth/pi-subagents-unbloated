@@ -313,3 +313,14 @@ test.skipIf(win)("apply uses one frozen tree even if files change during conflic
   expect(await read(repo, "b.txt")).toBe("b\n");
   expect(await read(repo, "a.txt")).toBe("agent\n");
 });
+
+test("failed worktree add does not block the next creation", async () => {
+  await git(repo, "branch", "pi-subagent/blocked");
+  const [failed, next] = await Promise.allSettled([
+    create({ repoRoot: repo, id: "blocked" }),
+    create({ repoRoot: repo, id: "next" }),
+  ]);
+  expect(failed.status).toBe("rejected");
+  expect(next.status).toBe("fulfilled");
+  if (next.status === "fulfilled") expect((await inspect(next.value)).clean).toBe(true);
+});
