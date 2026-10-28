@@ -163,9 +163,16 @@ export function killAll(): void {
 function truncate(text: string, max: number): { text: string; truncated: boolean } {
   const buf = Buffer.from(text, "utf8");
   if (buf.length <= max) return { text, truncated: false };
-  const marker = `\n[truncated: ${buf.length - max} of ${buf.length} bytes omitted]`;
-  let cut = Math.max(0, max - Buffer.byteLength(marker));
-  while (cut > 0 && (buf[cut]! & 0xc0) === 0x80) cut--; // do not split a UTF-8 sequence
+  let cut = max;
+  let marker: string;
+  for (;;) {
+    marker = `\n[truncated: ${buf.length - cut} of ${buf.length} bytes omitted]`;
+    if (Buffer.byteLength(marker) > max) return { text: "[truncated]".slice(0, max), truncated: true };
+    const next = Math.max(0, max - Buffer.byteLength(marker));
+    if (cut <= next) break;
+    cut = next;
+    while (cut > 0 && (buf[cut]! & 0xc0) === 0x80) cut--; // do not split a UTF-8 sequence
+  }
   return { text: buf.subarray(0, cut).toString("utf8") + marker, truncated: true };
 }
 

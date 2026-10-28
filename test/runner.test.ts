@@ -53,6 +53,19 @@ describe("results", () => {
     expect(Buffer.byteLength(u.text)).toBeLessThanOrEqual(1001);
     expect(u.text).not.toContain("�");
   });
+  test("truncation respects tiny caps and reports actual omitted bytes", async () => {
+    for (const max of [0, 1, 10, 11, 45, 1001]) {
+      const r = await run("huge-unicode", {}, { maxResultBytes: max }).child.done;
+      expect(r.truncated).toBe(true);
+      expect(Buffer.byteLength(r.text)).toBeLessThanOrEqual(max);
+      expect(r.text).not.toContain("�");
+      const match = /\n\[truncated: (\d+) of (\d+) bytes omitted\]$/.exec(r.text);
+      if (match) {
+        const kept = Buffer.byteLength(r.text.slice(0, match.index));
+        expect(Number(match[1]) + kept).toBe(Number(match[2]));
+      }
+    }
+  });
   test("default limit 8192", async () => {
     const r = await run("huge").child.done;
     expect(Buffer.byteLength(r.text)).toBeLessThanOrEqual(8192);
