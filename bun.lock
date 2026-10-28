@@ -12,9 +12,7 @@
         "typescript": "^5",
       },
       "peerDependencies": {
-        "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
-        "typebox": "*",
       },
     },
   },
