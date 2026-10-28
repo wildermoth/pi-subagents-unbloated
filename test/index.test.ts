@@ -108,15 +108,15 @@ test("the widget shows live jobs and clears once their results are delivered", a
   const h = harness();
   h.handlers.session_start!({}, h.ctx(cwd));
   await run(h, cwd, { action: "start", agent: "scout", task: "look around" });
-  expect(h.widgets.at(-1)).toEqual(["running | scout: look around"]);
+  expect(h.widgetLines()?.[1]).toMatch(/^└─ \S+ scout {2}look around · /);
   h.ctls[0]!.spec.onActivity!("found the thing");
-  expect(h.widgets.at(-1)).toEqual(["running | scout: found the thing"]);
+  expect(h.widgetLines()?.[2]).toMatch(/⎿ {2}found the thing$/);
   h.setIdle(false); // mid-turn: no wakeup, so the finished job stays visible until read
   h.ctls[0]!.finish(ok("found it"));
   await tick();
-  expect(h.widgets.at(-1)?.[0]).toMatch(/^completed \| scout/);
+  expect(h.widgetLines()?.[1]).toMatch(/^└─ ✓ scout/);
   await run(h, cwd, { action: "inbox" });
-  expect(h.widgets.at(-1)).toBeUndefined();
+  expect(h.widgetLines()).toBeUndefined();
 });
 
 test("agent names and blurbs reach the system prompt once per session, only when the tool is active", async () => {

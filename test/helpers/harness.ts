@@ -47,10 +47,20 @@ export function harness(branch: unknown[] = [], failSend = { on: false }) {
   };
   register(pi as any, runner);
   let idle = true;
-  const widgets: (string[] | undefined)[] = [];
+  // Like Pi, build the widget component on mount; tests read what it would draw right now.
+  let mounted: { render(w: number): string[] } | undefined;
+  const ui = {
+    setWidget: (_key: string, content: unknown) => {
+      mounted =
+        typeof content === "function"
+          ? content({ requestRender() {} }, { fg: (_c: string, s: string) => s, bold: (s: string) => s })
+          : undefined;
+    },
+  };
   const ctx = (cwd: string, trusted = true) => ({
     hasUI: true,
-    ui: { setWidget: (_key: string, lines: string[] | undefined) => void widgets.push(lines) },
+    mode: "tui",
+    ui,
     cwd,
     isProjectTrusted: () => trusted,
     isIdle: () => idle,
@@ -58,7 +68,7 @@ export function harness(branch: unknown[] = [], failSend = { on: false }) {
     thinkingLevel: "low",
     sessionManager: { getBranch: () => branch },
   });
-  return { handlers, sent, entries, tool, ctls, ctx, widgets, setIdle: (v: boolean) => (idle = v) };
+  return { handlers, sent, entries, tool, ctls, ctx, widgetLines: () => mounted?.render(120), setIdle: (v: boolean) => (idle = v) };
 }
 
 export async function project(dirs: string[]) {

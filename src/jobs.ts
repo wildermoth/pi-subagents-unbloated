@@ -9,6 +9,8 @@ export interface JobRecord {
   task: string;
   state: JobState;
   createdAt: number;
+  /** When it left the queue; display only, not persisted. */
+  startedAt?: number;
   endedAt?: number;
   result?: RunResult;
   delivered: boolean;
@@ -126,6 +128,7 @@ export function createJobs(opts: {
     e.holding = true;
     running[lane(e)]++;
     e.rec.state = "starting";
+    e.rec.startedAt = now();
     notify(opts.onChange, e.rec);
     if (isTerminal(e.rec.state)) return; // an observer may cancel before spawn
     let child: Child;

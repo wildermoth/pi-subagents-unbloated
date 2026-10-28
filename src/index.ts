@@ -4,7 +4,7 @@ import { realpath } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { JobRecord, Jobs } from "./jobs.ts";
 import type { Workspace } from "./isolation.ts";
-import { renderStatus } from "./statusbar.ts";
+import { createWidget } from "./widget.ts";
 import { recover, JOB_ENTRY, UNREAD_ENTRY, WS_ENTRY } from "./recovery.ts";
 import { isDone, line, MAX_DIFF_CHARS, params, requireArgs, text, WAIT_HINT, type Params } from "./schema.ts";
 import type { Runner } from "./types.ts";
@@ -34,6 +34,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
 
   let agentSection: Promise<string> | undefined; // cached for the session; reset at session_start
 
+  const widget = createWidget(() => state?.jobs.list() ?? []);
   let waking = false; // a wake is in flight; sendMessage defers inside agent_settled, so isIdle() stays true meanwhile
 
   /** The job's worktree, refusing while the job could still be writing to it. */
@@ -58,7 +59,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     try {
       pi.sendMessage({ customType: "subagent-results", content: inbox.format(records), display: true }, { triggerTurn: wake });
       waking = wake;
-      render();
+      widget.update();
     } catch (e) {
       inbox.requeue(records); // never lose a result to a failed send
       throw e;
@@ -74,15 +75,6 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     }
     if (idle && !waking) flush(wake);
   };
-
-  /** Refresh the live job widget. Display only; a stale context just skips it. */
-  function render() {
-    try {
-      if (ctx?.hasUI) ctx.ui.setWidget("subagents", renderStatus([...interrupted, ...(state?.jobs.list() ?? [])]));
-    } catch {
-      ctx = undefined; // stale after reload; session_start recaptures
-    }
-  }
 
   function getState() {
     return (pending ??= build());
@@ -100,9 +92,9 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
       onTerminal: (r) => inbox.publish(r),
       onChange: ({ id, agent, task, state: s, createdAt, endedAt, delivered }) => {
         pi.appendEntry(JOB_ENTRY, { id, agent, task, state: s, createdAt, endedAt, delivered });
-        render();
+        widget.update();
       },
-      onActivity: render,
+      onActivity: widget.update,
     });
     return (state = { jobs, inbox });
   }
@@ -116,7 +108,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
       try {
         return await runAction(args, signal, c);
       } finally {
-        render(); // reads and cancels change what is still unread
+        widget.update(); // reads and cancels change what is still unread
       }
     },
   });
@@ -300,6 +292,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
 
   pi.on("session_start", async (_e, c) => {
     ctx = c;
+    widget.bind(c.mode === "tui" ? c.ui : undefined);
     agentSection = undefined;
     const { jobs: seen, workspaces: restored, unread } = recover(c.sessionManager.getBranch());
     workspaces.clear();
@@ -343,15 +336,12 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   });
   pi.on("agent_settled", (e, c) => {
     ctx = c;
+    widget.bind(c.mode === "tui" ? c.ui : undefined); // custom components only exist in the terminal UI
     waking = false;
     flushIfIdle(!e.aborted); // after a user abort, deliver passively instead of restarting the agent
   });
   pi.on("session_shutdown", async () => {
-    try {
-      if (ctx?.hasUI) ctx.ui.setWidget("subagents", undefined);
-    } catch {
-      // stale context: nothing left to clear
-    }
+    widget.dispose();
     ctx = undefined;
     const s = await pending?.catch(() => undefined);
     await s?.jobs.shutdown();
