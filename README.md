@@ -56,17 +56,18 @@ In the terminal UI a widget above the editor shows running jobs and finished job
 
 ```text
 ● Agents
-├─ ⠹ researcher  Refactor auth module · ↻5 · 5 tool uses · 33.8k token (62%) · 12.3s
+├─ ⠹ researcher  Refactor auth module · ↻ 5 · 5 tool uses · 33.8k token (62%) · 12.3s
 │      ⎿  editing 2 files…
-├─ ⠹ scout  Find auth files · ↻3 · 3 tool uses · 12.4k token (8%) · 4.1s
+├─ ⠹ scout  Find auth files · ↻ 3 · 3 tool uses · 12.4k token (8%) · 4.1s
 │      ⎿  searching…
-├─ ✓ writer  Draft the notes · ↻4 · 7 tool uses · 21.0k token · 18.0s
+├─ ✓ writer  Draft the notes · ↻ 4 · 7 tool uses · 21.0k token · 18.0s
 └─ 2 queued
 ```
 
-- **Row:** spinner, agent, task, then turns (`↻`, counted as each turn starts), tool calls started, tokens and elapsed time. All four always show, so a quiet agent reads as zeros. Finished rows show `✓` (done), `✗` (failed, with the error) or `■` (cancelled).
-- **Tokens:** the context size after the agent's latest turn, not a running total. The percentage is that over the model's context window (dim, then yellow from 70%, red from 85%); it appears while the job runs, and only when the model is known.
-- **Activity line:** the tools running right now (`reading`, `editing 2 files`, `searching the web`), otherwise the start of its latest message, otherwise `thinking…`.
+- **Row:** spinner, agent, task, then turns (`↻ n`, counted as each turn starts), tool calls, tokens and elapsed time. All four always show, so a quiet agent reads as zeros. Finished rows show `✓` (done), `✗` (failed, with the error) or `■` (cancelled).
+- **Live counts:** they move while a message streams in. A tool call counts as soon as it begins streaming, before it runs. Tokens are the context size at the last finished message plus an estimate of what has streamed since (about 4 characters per token); when the message ends, the provider's own figure replaces the estimate, so the number can step down slightly.
+- **Context use:** the percentage is that token figure over the model's context window (dim, then yellow from 70%, red from 85%). It shows while the job runs, and only when the model is known.
+- **Activity line:** the tools running right now (`reading`, `editing 2 files`, `searching the web`), otherwise the end of the text it is writing, otherwise `thinking…`.
 - **Overflow:** at most 5 jobs are listed. The rest collapse into a final `+N more, M queued` row, or `M queued` alone.
 - **Lifetime:** a finished job leaves the widget once its result has been delivered to the model. The widget clears when nothing is left and only animates while a job is running.
 - It costs no model context, is not persisted, and is skipped outside the terminal UI. Both the child-process and in-process backends feed it from the same events.
