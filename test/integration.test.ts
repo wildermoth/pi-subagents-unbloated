@@ -3,7 +3,7 @@
 import { expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { RpcConnection } from "../src/protocol.ts";
-import { resolvePiCommand } from "../src/runner.ts";
+import { resolvePiCommand } from "../src/pi-command.ts";
 
 test.skipIf(process.env.PI_INTEGRATION !== "1")(
   "real pi: get_state then orderly shutdown",

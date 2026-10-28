@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildArgs, createRunner, resolvePiCommand } from "../src/runner.ts";
+import { resolvePiCommand } from "../src/pi-command.ts";
+import { buildArgs, createRunner } from "../src/runner.ts";
 import type { Child, RunSpec } from "../src/types.ts";
 
 const spec = (o: Partial<RunSpec> = {}): RunSpec => ({

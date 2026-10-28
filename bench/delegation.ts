@@ -5,7 +5,8 @@ import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { BASE_FLAGS, descendants, f, fakeProvider, makeAgentDir, pct, row, spawnToState, stopPi, rssMb } from "./lib.ts";
 import { RpcConnection } from "../src/protocol.ts";
-import { buildArgs, createRunner, resolvePiCommand } from "../src/runner.ts";
+import { resolvePiCommand } from "../src/pi-command.ts";
+import { buildArgs, createRunner } from "../src/runner.ts";
 import type { RunSpec } from "../src/types.ts";
 
 const N = Number(process.argv[2] ?? 10);

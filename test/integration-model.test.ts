@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeAgentDir, sse, startFakeServer, chunk, textReply, usage } from "./helpers/fake-provider.ts";
 import { RpcConnection } from "../src/protocol.ts";
-import { buildArgs, createRunner, resolvePiCommand } from "../src/runner.ts";
+import { resolvePiCommand } from "../src/pi-command.ts";
+import { buildArgs, createRunner } from "../src/runner.ts";
 import type { RunSpec } from "../src/types.ts";
 
 const enabled = process.env.PI_INTEGRATION === "1";

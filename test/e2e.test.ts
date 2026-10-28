@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { makeAgentDir, startFakeServer, textReply, toolCallsReply } from "./helpers/fake-provider.ts";
 import { RpcConnection } from "../src/protocol.ts";
-import { resolvePiCommand } from "../src/runner.ts";
+import { resolvePiCommand } from "../src/pi-command.ts";
 
 const enabled = process.env.PI_INTEGRATION === "1";
 const T = (name: string, fn: () => Promise<void>) => test.skipIf(!enabled)(name, fn, 90_000);
