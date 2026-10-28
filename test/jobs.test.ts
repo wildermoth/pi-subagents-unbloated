@@ -298,6 +298,46 @@ describe("jobs", () => {
     expect(jobs.list().length).toBe(3);
   });
 
+  test("observer cancellation before spawn never launches or retains a writer lock", async () => {
+    const f = fake();
+    let cancelStarting = true;
+    const terminal: string[] = [];
+    const jobs = createJobs({
+      runner: f.runner,
+      onChange: (r) => {
+        if (cancelStarting && r.state === "starting") void jobs.cancel(r.id);
+      },
+      onTerminal: (r) => terminal.push(r.id),
+    });
+    const cancelled = jobs.start(req({ writes: true }));
+    expect(cancelled.state).toBe("cancelled");
+    expect(f.children).toHaveLength(0);
+    expect(jobs.active).toBe(0);
+    expect(await jobs.wait(cancelled.id)).toBe(cancelled);
+    expect(terminal).toEqual([cancelled.id]);
+    cancelStarting = false;
+    expect(jobs.start(req({ writes: true })).state).toBe("running");
+  });
+
+  test("terminal history preserves record identity and completed APIs", async () => {
+    const f = fake();
+    const jobs = createJobs({ runner: f.runner });
+    const r = jobs.start(req());
+    const waiting = jobs.wait(r.id);
+    f.children[0]!.finish(ok("kept"));
+    expect(await waiting).toBe(r);
+    r.delivered = true;
+    expect(jobs.get(r.id)).toBe(r);
+    expect(jobs.list()).toEqual([r]);
+    expect(await jobs.wait(r.id)).toBe(r);
+    expect(await jobs.cancel(r.id)).toBe(r);
+    expect(f.children[0]!.cancels).toBe(0);
+    await expect(jobs.steer(r.id, "late")).rejects.toThrow("completed, not running");
+    await jobs.shutdown();
+    expect(jobs.get(r.id)?.result?.text).toBe("kept");
+    expect(jobs.get(r.id)?.delivered).toBe(true);
+  });
+
   test("observer throwing does not leak slots", async () => {
     const f = fake();
     const jobs = createJobs({ runner: f.runner, onTerminal: () => { throw new Error("obs"); } });

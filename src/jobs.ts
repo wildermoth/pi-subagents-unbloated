@@ -79,7 +79,8 @@ export function createJobs(opts: {
   let seq = 0;
   const newId = opts.id ?? (() => `job-${++seq}-${Math.random().toString(36).slice(2, 8)}`);
 
-  const entries = new Map<string, Entry>();
+  const records = new Map<string, JobRecord>();
+  const entries = new Map<string, Entry>(); // live runtime data only
   const queue: Entry[] = [];
   const history: string[] = [];
   const writerRepos = new Set<string>();
@@ -107,8 +108,9 @@ export function createJobs(opts: {
     e.rec.state = state;
     e.rec.endedAt = now();
     if (result) e.rec.result = result;
+    entries.delete(e.rec.id);
     history.push(e.rec.id);
-    while (history.length > maxHistory) entries.delete(history.shift()!);
+    while (history.length > maxHistory) records.delete(history.shift()!);
     notify(opts.onChange, e.rec);
     notify(opts.onTerminal, e.rec);
     e.resolve(e.rec);
@@ -128,6 +130,7 @@ export function createJobs(opts: {
     if (e.req.writes) writerRepos.add(e.req.repoKey);
     e.rec.state = "starting";
     notify(opts.onChange, e.rec);
+    if (isTerminal(e.rec.state)) return; // an observer may cancel before spawn
     let child: Child;
     try {
       child = opts.runner.start(e.req.spec);
@@ -155,25 +158,25 @@ export function createJobs(opts: {
     try {
       for (;;) {
         if (closed || running >= max) return;
-        const next = queue.find((q) => !q.req.writes || !writerRepos.has(q.req.repoKey));
-        if (!next) return;
-        queue.splice(queue.indexOf(next), 1);
-        launch(next);
+        const i = queue.findIndex((q) => !q.req.writes || !writerRepos.has(q.req.repoKey));
+        if (i < 0) return;
+        launch(queue.splice(i, 1)[0]!);
       }
     } finally {
       pumping = false;
     }
   }
 
-  function need(id: string): Entry {
-    const e = entries.get(id);
-    if (!e) throw new Error(`unknown job ${id}`);
-    return e;
+  function need(id: string): JobRecord {
+    const rec = records.get(id);
+    if (!rec) throw new Error(`unknown job ${id}`);
+    return rec;
   }
 
   function cancel(id: string): Promise<JobRecord> {
-    const e = need(id);
-    if (isTerminal(e.rec.state)) return Promise.resolve(e.rec);
+    const rec = need(id);
+    if (isTerminal(rec.state)) return Promise.resolve(rec);
+    const e = entries.get(id)!;
     if (e.cancelP) return e.cancelP;
     if (!e.child) {
       settle(e, "cancelled");
@@ -202,25 +205,30 @@ export function createJobs(opts: {
         delivered: false,
       };
       const e: Entry = { rec, req, holding: false, settled, resolve };
+      records.set(id, rec);
       entries.set(id, e);
       queue.push(e);
       notify(opts.onChange, rec);
       pump();
       return rec;
     },
-    get: (id) => entries.get(id)?.rec,
-    list: () => [...entries.values()].map((e) => e.rec),
+    get: (id) => records.get(id),
+    list: () => [...records.values()],
     cancel,
     async steer(id, message) {
-      const e = need(id);
-      if (e.rec.state !== "running" || !e.child) throw new Error(`job ${id} is ${e.rec.state}, not running`);
-      await e.child.steer(message);
+      const rec = need(id);
+      const child = entries.get(id)?.child;
+      if (rec.state !== "running" || !child) throw new Error(`job ${id} is ${rec.state}, not running`);
+      await child.steer(message);
     },
-    wait: (id) => need(id).settled,
+    wait: (id) => {
+      const rec = need(id);
+      return entries.get(id)?.settled ?? Promise.resolve(rec);
+    },
     async shutdown(graceMs = 5000) {
       closed = true;
       for (const e of [...queue]) settle(e, "cancelled");
-      const live = [...entries.values()].filter((e) => !isTerminal(e.rec.state));
+      const live = [...entries.values()];
       let timer: ReturnType<typeof setTimeout> | undefined;
       const grace = new Promise<void>((r) => (timer = setTimeout(r, graceMs)));
       await Promise.race([Promise.all(live.map((e) => cancel(e.rec.id))), grace]);
