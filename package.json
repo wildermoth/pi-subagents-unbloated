@@ -1,0 +1,8 @@
+{
+  "name": "pi-subagents-unbloated",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  }
+}
