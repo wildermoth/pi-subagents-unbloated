@@ -12,7 +12,9 @@
 
 | File | Responsibility |
 | --- | --- |
-| `src/index.ts` | Thin Pi integration: registers the tool and `/subagents`, session lifecycle hooks, completion delivery. Loads everything else lazily on the first tool call. |
+| `src/index.ts` | Pi integration: registers the tool and `/subagents`, dispatches actions, session lifecycle hooks, completion delivery. Loads everything else lazily on the first tool call. |
+| `src/schema.ts` | The tool contract: plain JSON Schema, single-source action list and required arguments, shared result strings. |
+| `src/recovery.ts` | Replays persisted session entries in one pass: job records, live worktrees, unread results. |
 | `src/agents.ts` | On-demand agent discovery, frontmatter parsing via Pi's parser, trust and precedence rules. |
 | `src/runner.ts` | Spawns a child Pi, sends the prompt, observes completion, steers, cancels, terminates. Small `Runner` interface so tests inject a fake. |
 | `src/pi-command.ts` | Resolves the Pi command: `PI_BIN`, then this process's own Pi entry, then the installed package, then `pi` on PATH, with Windows shim handling. |

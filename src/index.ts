@@ -4,53 +4,18 @@ import { realpath } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { JobRecord, Jobs } from "./jobs.ts";
 import type { Workspace } from "./isolation.ts";
+import { recover, JOB_ENTRY, UNREAD_ENTRY, WS_ENTRY } from "./recovery.ts";
+import { isDone, line, MAX_DIFF_CHARS, params, requireArgs, text, WAIT_HINT, type Params } from "./schema.ts";
 import type { Runner } from "./types.ts";
 
 const TIMEOUT_MS = 30 * 60_000;
 const LAUNCH_TIMEOUT_MS = 30_000;
-const JOB_ENTRY = "subagent-job";
 
-/** Plain JSON Schema: avoids loading typebox and pi-ai at startup. */
-const params = {
-  type: "object",
-  properties: {
-    action: { type: "string", enum: ["start", "list", "status", "steer", "cancel", "agents", "inbox", "diff", "apply", "discard"] },
-    agent: { type: "string" },
-    task: {
-      type: "string",
-      description: "Self-contained brief; no parent conversation is passed (project AGENTS.md/CLAUDE.md still load)",
-    },
-    id: { type: "string" },
-    message: { type: "string" },
-    wait: { type: "boolean", description: "Block until finished (default: background)" },
-    isolate: { type: "boolean", description: "Run in a git worktree; review with diff, then apply or discard" },
-  },
-  required: ["action"],
-} as never;
-
-interface Params {
-  action: "start" | "list" | "status" | "steer" | "cancel" | "agents" | "inbox" | "diff" | "apply" | "discard";
-  agent?: string;
-  task?: string;
-  id?: string;
-  message?: string;
-  wait?: boolean;
-  isolate?: boolean;
-}
-
-const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: undefined });
 let agentsMod: Promise<typeof import("./agents.ts")> | undefined;
 /** One shared import: Pi's loader hands concurrent first imports a half-initialised module. */
 const agentsModule = () => (agentsMod ??= import("./agents.ts"));
 let isoMod: Promise<typeof import("./isolation.ts")> | undefined;
 const isolationModule = () => (isoMod ??= import("./isolation.ts"));
-const WS_ENTRY = "subagent-workspace";
-const UNREAD_ENTRY = "subagent-unread"; // results finished but never read when the session ended
-const isDone = (r: JobRecord) => r.state === "completed" || r.state === "failed";
-const MAX_DIFF_CHARS = 6000;
-const WAIT_HINT = "Results are delivered automatically when jobs finish. End your turn now; do not poll, sleep, or call list/status/inbox.";
-const line = (r: JobRecord) => `${r.id} ${r.agent} ${r.state}${r.delivered ? "" : r.result ? " (unread)" : ""}: ${r.task.slice(0, 60)}`;
-
 export default function (pi: ExtensionAPI, injected?: Runner) {
   let ctx: ExtensionContext | undefined;
   let state: { jobs: Jobs; inbox: Inbox; isWriter: (tools?: string[]) => boolean } | undefined;
@@ -125,10 +90,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     parameters: params,
     async execute(_id, args, signal, _onUpdate, c) {
       const p = args as Params;
-      const need = (...k: ("agent" | "task" | "id" | "message")[]) => {
-        const missing = k.filter((x) => !p[x]);
-        if (missing.length) throw new Error(`${p.action} requires ${missing.join(", ")}`);
-      };
+      requireArgs(p);
       const { jobs, inbox, isWriter } = await getState();
       switch (p.action) {
         case "agents": {
@@ -137,7 +99,6 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           return text([listAgents(agents), ...warnings].filter(Boolean).join("\n") || "no agents defined");
         }
         case "start": {
-          need("agent", "task");
           const { discoverAgents, resolveAgent } = await agentsModule();
           const { agents } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
           const def = resolveAgent(agents, p.agent!);
@@ -213,7 +174,6 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           return text(all.some((r) => !isDone(r) && r.state !== "cancelled" && r.state !== "interrupted") ? `${out}\n${WAIT_HINT}` : out);
         }
         case "status": {
-          need("id");
           const r = jobs.get(p.id!) ?? interrupted.find((j) => j.id === p.id);
           if (!r) throw new Error(`unknown job ${p.id}`);
           const done = inbox.take(r.id); // reading output consumes it, so no later wakeup repeats it
@@ -226,17 +186,14 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           );
         }
         case "steer":
-          need("id", "message");
           await jobs.steer(p.id!, p.message!);
           return text(`steered ${p.id}`);
         case "cancel": {
-          need("id");
           const r = await jobs.cancel(p.id!);
           inbox.take(r.id); // the caller is told here, a later wakeup would repeat it
           return text(`${r.id} ${r.state}`);
         }
         case "diff": {
-          need("id");
           const { changed, diff, clean } = await (await isolationModule()).inspect(workspaceOf(p.id!));
           if (clean) return text("no changes");
           const head = `${changed.length} changed:\n${changed.slice(0, 50).join("\n")}`;
@@ -244,7 +201,6 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           return text(`${head}\n\n${diff.slice(0, MAX_DIFF_CHARS)}${more}`);
         }
         case "apply": {
-          need("id");
           const ws = workspaceOf(p.id!);
           const iso = await isolationModule();
           let applied: string[];
@@ -266,7 +222,6 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           return text(`applied ${applied.length} file(s):\n${applied.join("\n")}${left}`);
         }
         case "discard": {
-          need("id");
           const ws = workspaceOf(p.id!);
           await (await isolationModule()).discard(ws, { force: true });
           forget(p.id!);
@@ -288,16 +243,8 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   });
 
   /** Show results that finished unread before the last shutdown, once, without waking the agent. */
-  async function surfaceUnread(c: ExtensionContext) {
-    const unread = new Map<string, JobRecord>();
-    for (const e of c.sessionManager.getBranch()) {
-      if (e.type !== "custom" || e.customType !== UNREAD_ENTRY) continue;
-      const d = (e as { data: { records?: JobRecord[]; ack?: string[] } }).data;
-      for (const r of d.records ?? []) unread.set(r.id, r);
-      for (const id of d.ack ?? []) unread.delete(id);
-    }
-    if (!unread.size) return;
-    const records = [...unread.values()];
+  async function surfaceUnread(records: JobRecord[]) {
+    if (!records.length) return;
     const { createInbox } = await import("./inbox.ts");
     pi.sendMessage(
       {
@@ -312,18 +259,10 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
 
   pi.on("session_start", async (_e, c) => {
     ctx = c;
-    const seen = c.sessionManager
-      .getBranch()
-      .filter((e) => e.type === "custom" && e.customType === JOB_ENTRY)
-      .map((e) => (e as { data: JobRecord }).data);
+    const { jobs: seen, workspaces: restored, unread } = recover(c.sessionManager.getBranch());
     workspaces.clear();
-    for (const e of c.sessionManager.getBranch()) {
-      if (e.type !== "custom" || e.customType !== WS_ENTRY) continue;
-      const d = (e as { data: { jobId: string; ws?: Workspace; discarded?: boolean } }).data;
-      if (d.discarded) workspaces.delete(d.jobId);
-      else if (d.ws) workspaces.set(d.jobId, d.ws);
-    }
-    await surfaceUnread(c);
+    for (const [id, ws] of restored) workspaces.set(id, ws);
+    await surfaceUnread(unread);
     interrupted = [];
     if (!seen.length) return;
     const { restoreInterrupted } = await import("./jobs.ts");

@@ -122,7 +122,7 @@ Precedence: a project agent overrides a user agent of the same name. Within one 
 
 ## Size, dependencies, performance
 
-- Source: 69,040 bytes across 8 files in `src/` (`wc -c src/*.ts`).
+- Source: 73,212 bytes across 11 files in `src/` (`wc -c src/*.ts`).
 - Runtime dependencies: 0. the one peer dependency is `@earendil-works/pi-coding-agent` (`>=1.4.0 <2`), supplied by Pi. `pi-ai` and `typebox` are development dependencies only.
 
 Measured on one machine (Linux under WSL2, Intel Core i5-14400F, Bun 1.3.13, Pi 1.4.0, local zero-delay fake model provider). Figures vary run to run; WSL2 noise is large. Full methodology and more tables are in [PERFORMANCE.md](PERFORMANCE.md).
