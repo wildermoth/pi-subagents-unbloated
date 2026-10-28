@@ -26,6 +26,8 @@ export interface RunSpec {
   timeoutMs: number;
   /** Max time from launch to prompt acknowledgement. */
   launchTimeoutMs: number;
+  /** Display only: called with the text of each completed assistant message. Must not throw into the run. */
+  onActivity?: (text: string) => void;
 }
 
 export type RunStatus = "completed" | "failed" | "cancelled";

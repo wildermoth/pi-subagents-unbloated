@@ -48,6 +48,17 @@ afterEach(async () => {
 });
 
 describe("results", () => {
+  test("each assistant message is reported to onActivity, and a throwing observer cannot fail the run", async () => {
+    const seen: string[] = [];
+    await run("normal", { onActivity: (t) => seen.push(t) }).child.done;
+    expect(seen.at(-1)).toBe("hello");
+    const r = await run("normal", {
+      onActivity: () => {
+        throw new Error("observer bug");
+      },
+    }).child.done;
+    expect(r.status).toBe("completed");
+  });
   test("normal answer", async () => {
     const r = await run("normal").child.done;
     expect(r).toEqual({ status: "completed", text: "hello", truncated: false });

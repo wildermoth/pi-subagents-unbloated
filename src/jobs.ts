@@ -14,6 +14,8 @@ export interface JobRecord {
   delivered: boolean;
   /** Shown to the model with the result, e.g. where isolated work was kept. */
   note?: string;
+  /** Latest assistant text, for the status widget only. Never persisted. */
+  activity?: string;
 }
 
 export interface StartRequest {
@@ -70,6 +72,8 @@ export function createJobs(opts: {
   maxHistory?: number;
   onTerminal?: (r: JobRecord) => void;
   onChange?: (r: JobRecord) => void;
+  /** The job produced output; `activity` is updated. Display hook only. */
+  onActivity?: (r: JobRecord) => void;
   now?: () => number;
   id?: () => string;
 }): Jobs {
@@ -134,7 +138,14 @@ export function createJobs(opts: {
     if (isTerminal(e.rec.state)) return; // an observer may cancel before spawn
     let child: Child;
     try {
-      child = opts.runner.start(e.req.spec);
+      child = opts.runner.start({
+        ...e.req.spec,
+        onActivity: (t) => {
+          if (isTerminal(e.rec.state) || !t.trim()) return;
+          e.rec.activity = t.slice(0, 200);
+          notify(opts.onActivity, e.rec);
+        },
+      });
     } catch (err) {
       settle(e, "failed", failed("launch", err));
       return;

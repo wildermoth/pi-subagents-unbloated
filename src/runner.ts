@@ -169,10 +169,22 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
         decide({ status: "completed", text: t.text, truncated: t.truncated });
       };
 
+      /** Tell the display observer; it must never fail the run. */
+      const announce = (msg: JsonRecord): void => {
+        try {
+          spec.onActivity?.(assistantText(msg));
+        } catch {
+          // display only
+        }
+      };
+
       const onEvent = (ev: JsonRecord): void => {
         switch (ev.type) {
           case "message_end":
-            if (asRecord(ev.message)?.role === "assistant") lastAssistant = ev.message as JsonRecord;
+            if (asRecord(ev.message)?.role === "assistant") {
+              lastAssistant = ev.message as JsonRecord;
+              announce(lastAssistant);
+            }
             break;
           case "agent_end":
             if (Array.isArray(ev.messages)) {
