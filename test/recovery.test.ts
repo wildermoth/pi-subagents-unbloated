@@ -2,8 +2,14 @@ import { expect, test } from "bun:test";
 import { JOB_ENTRY, recover, UNREAD_ENTRY, WS_ENTRY } from "../src/recovery.ts";
 import type { JobRecord } from "../src/jobs.ts";
 
-const rec = (id: string, state: JobRecord["state"] = "completed"): JobRecord =>
-  ({ id, agent: "a", task: "t", state, createdAt: 0, delivered: false });
+const rec = (id: string, state: JobRecord["state"] = "completed"): JobRecord => ({
+  id,
+  agent: "a",
+  task: "t",
+  state,
+  createdAt: 0,
+  delivered: false,
+});
 const custom = (customType: string, data: unknown) => ({ type: "custom", customType, data });
 
 test("one pass restores jobs, live worktrees and unread results", () => {
