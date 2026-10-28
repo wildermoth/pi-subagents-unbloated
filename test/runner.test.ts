@@ -88,9 +88,9 @@ describe("flags", () => {
     expect(b).not.toContain("--no-tools");
   });
   test("resolvePiCommand order", () => {
-    expect(resolvePiCommand({ PI_BIN: "/x/pi" }, "/a/cli.js")).toEqual({ command: "/x/pi", args: [] });
-    expect(resolvePiCommand({}, "/opt/pi-coding-agent/dist/cli.js")).toEqual({ command: process.execPath, args: ["/opt/pi-coding-agent/dist/cli.js"] });
-    expect(resolvePiCommand({}, "/repo/foo.test.ts", { resolvePackage: () => undefined })).toEqual({ command: "pi", args: [] });
+    expect(resolvePiCommand({ PI_BIN: "/x/pi" }, "/a/cli.js", { platform: "linux" })).toEqual({ command: "/x/pi", args: [] });
+    expect(resolvePiCommand({}, "/opt/pi-coding-agent/dist/cli.js", { platform: "linux" })).toEqual({ command: process.execPath, args: ["/opt/pi-coding-agent/dist/cli.js"] });
+    expect(resolvePiCommand({}, "/repo/foo.test.ts", { platform: "linux", resolvePackage: () => undefined })).toEqual({ command: "pi", args: [] });
   });
 });
 
@@ -125,6 +125,23 @@ describe("failures", () => {
     const r = await child.done;
     expect(r.failure?.kind).toBe("timeout");
     expect(alive(pid())).toBe(false);
+  });
+  test("hitting the output length limit is a provider failure that keeps the partial text", async () => {
+    const r = await run("length").child.done;
+    expect(r.status).toBe("failed");
+    expect(r.failure?.kind).toBe("provider");
+    expect(r.text).toBe("cut off mid sen");
+  });
+  test("timeout and cancel keep what the child had already said", async () => {
+    const t = await run("partial-hang", { timeoutMs: 400 }).child.done;
+    expect(t.failure?.kind).toBe("timeout");
+    expect(t.text).toBe("so far so good");
+    const { child } = run("partial-hang");
+    await Bun.sleep(300);
+    await child.cancel();
+    const c = await child.done;
+    expect(c.status).toBe("cancelled");
+    expect(c.text).toBe("so far so good");
   });
   test("rejected and handled prompts", async () => {
     expect((await run("rejected").child.done).failure?.kind).toBe("rejected");

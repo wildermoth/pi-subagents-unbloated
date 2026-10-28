@@ -228,8 +228,10 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
           }
         })();
       };
+      /** Whatever the child had said so far, so a cut-short run does not look like doing nothing. */
+      const partial = () => (lastAssistant ? truncate(assistantText(lastAssistant), maxResultBytes) : { text: "", truncated: false });
       const fail = (kind: FailureKind, message: string): void =>
-        decide({ status: "failed", text: "", truncated: false, failure: { kind, message } });
+        decide({ status: "failed", ...partial(), failure: { kind, message } });
 
       const finishIfSettled = (): void => {
         if (outcome || !acked || !settled) return;
@@ -237,7 +239,8 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
         if (!lastAssistant) return fail("protocol", "agent_settled without an assistant message");
         if (stop === "error") return fail("provider", String(lastAssistant.errorMessage ?? "provider error"));
         if (stop === "aborted") return fail("provider", "run aborted unexpectedly");
-        if (stop !== "stop" && stop !== "length") return fail("protocol", `unexpected stopReason: ${String(stop)}`);
+        if (stop === "length") return fail("provider", "model hit its output length limit; the result is partial");
+        if (stop !== "stop") return fail("protocol", `unexpected stopReason: ${String(stop)}`);
         const t = truncate(assistantText(lastAssistant), maxResultBytes);
         decide({ status: "completed", text: t.text, truncated: t.truncated });
       };
@@ -329,7 +332,7 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
           if (!r.success) throw new Error(`steer rejected: ${String(r.error)}`);
         },
         async cancel(): Promise<void> {
-          decide({ status: "cancelled", text: "", truncated: false }, true);
+          decide({ status: "cancelled", ...partial() }, true);
           await done;
         },
       };

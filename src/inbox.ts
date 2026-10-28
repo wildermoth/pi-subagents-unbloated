@@ -41,6 +41,7 @@ export function createInbox(opts: { onPublish?: () => void; maxTextBytes?: numbe
     const lines = [`[${r.id} ${r.agent}] ${status}`];
     if (res?.failure) lines.push(`error: ${res.failure.message}`);
     if (res?.text) {
+      if (r.state !== "completed") lines.push("partial output:");
       const c = clip(res.text, max);
       lines.push(c.text);
       if (c.cut) lines.push(`[truncated: showing ${enc.encode(c.text).length} of ${c.total} bytes]`);

@@ -46,6 +46,12 @@ async function onPrompt(id: string) {
     case "exit-after-ack":
       process.stderr.write("crash after ack\n");
       process.exit(4);
+    case "partial-hang": // said something, then never settles
+      out({ type: "agent_start" });
+      out({ type: "message_end", message: assistant("so far so good") });
+      return;
+    case "length":
+      return finish("cut off mid sen", { stopReason: "length" });
     case "never-settles":
     case "stubborn":
     case "steerable":

@@ -109,3 +109,9 @@ test("requeue restores undelivered records ahead of newer ones", () => {
   expect(again.map((r) => r.id)).toEqual(["A", "B"]);
   expect(ib.drain()).toEqual([]);
 });
+
+test("non-completed results label their text as partial", () => {
+  const ib = createInbox();
+  const r = { id: "A", agent: "a", task: "t", state: "cancelled", createdAt: 0, delivered: false, result: { status: "cancelled", text: "half", truncated: false } } as any;
+  expect(ib.format([r])).toContain("partial output:\nhalf");
+});
