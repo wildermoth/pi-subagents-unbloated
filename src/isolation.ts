@@ -41,6 +41,8 @@ const QUIET = ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false"];
 const worktreeAdds = new Map<string, Promise<Uint8Array>>();
 const snapRef = (id: string) => `refs/pi-subagents/${id}/snapshot`;
 
+const MAX_STDERR = 64 * 1024;
+
 interface Out { code: number; out: Uint8Array; err: string; omitted: number }
 
 async function run(cwd: string, args: string[], input?: Uint8Array, maxChars?: number): Promise<Out> {
@@ -71,7 +73,13 @@ async function run(cwd: string, args: string[], input?: Uint8Array, maxChars?: n
         total += d.length;
       }
     });
-    proc.stderr!.on("data", (d: Buffer) => err.push(d));
+    let errBytes = 0;
+    proc.stderr!.on("data", (d: Buffer) => {
+      if (errBytes >= MAX_STDERR) return; // keep draining so git never blocks, retain only the head
+      const room = d.subarray(0, MAX_STDERR - errBytes);
+      err.push(room);
+      errBytes += room.length;
+    });
     proc.on("error", fail);
     proc.on("close", (code) =>
       resolve({ code: code ?? 1, out: Buffer.concat(out), err: Buffer.concat(err).toString().trim(), omitted: total - kept }));
