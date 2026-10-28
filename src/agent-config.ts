@@ -38,7 +38,8 @@ const describe = (a: AgentDef) => `${a.name}  (${a.model ?? INHERIT}, ${a.thinki
 /** Returns the changed agent, or undefined when the user backed out at any step. */
 export async function configureAgent(ctx: MenuContext, agents: AgentDef[]): Promise<AgentDef | undefined> {
   const byLabel = new Map(agents.map((a) => [describe(a), a]));
-  const agent = byLabel.get((await ctx.ui.select("Agent", [...byLabel.keys()])) ?? "");
+  // One candidate (opened from the agent list) needs no "which agent" question.
+  const agent = agents.length === 1 ? agents[0] : byLabel.get((await ctx.ui.select("Agent", [...byLabel.keys()])) ?? "");
   if (!agent) return undefined;
   const model = await ctx.ui.select(`Model for ${agent.name}`, [INHERIT, ...modelChoices(ctx)]);
   if (!model) return undefined;

@@ -65,7 +65,7 @@ describe("configureAgent", () => {
 
   test("writes the chosen model (quoted, so colons survive) and thinking, and discovery reads them back", async () => {
     await writeFile(join(dir, "a.md"), "---\nname: a\ndescription: d\n---\nBody");
-    const { ctx, notes } = menu(["a  (inherit, inherit)", "openrouter/meta/muse:fast", "high"]);
+    const { ctx, notes } = menu(["openrouter/meta/muse:fast", "high"]);
     const next = await configureAgent(ctx, await load());
     expect(next).toMatchObject({ model: "openrouter/meta/muse:fast", thinking: "high" });
     expect((await load())[0]).toMatchObject({ name: "a", model: "openrouter/meta/muse:fast", thinking: "high" });
@@ -75,27 +75,36 @@ describe("configureAgent", () => {
 
   test("inherit clears both fields; the menu offers inherit first and shows current settings", async () => {
     await writeFile(join(dir, "a.md"), "---\nname: a\ndescription: d\nmodel: x/y\nthinking: low\n---\nBody");
-    const { ctx, asked } = menu(["a  (x/y, low)", "inherit", "inherit"]);
+    const { ctx, asked } = menu(["inherit", "inherit"]);
     await configureAgent(ctx, await load());
     const text = await readFile(join(dir, "a.md"), "utf8");
     expect(text).not.toContain("model:");
     expect(text).not.toContain("thinking:");
-    expect(asked[1]!.options[0]).toBe("inherit");
-    expect(asked[1]!.options.slice(1)).toEqual(["anthropic/sonnet", "openrouter/meta/muse:fast"]);
+    expect(asked[0]!.options[0]).toBe("inherit");
+    expect(asked[0]!.options.slice(1)).toEqual(["anthropic/sonnet", "openrouter/meta/muse:fast"]);
   });
 
   test("backing out at any step changes nothing", async () => {
     await writeFile(join(dir, "a.md"), "---\nname: a\ndescription: d\n---\nBody");
     const agents = await load();
-    for (const answers of [[undefined], ["a  (inherit, inherit)", undefined], ["a  (inherit, inherit)", "anthropic/sonnet", undefined]]) {
+    for (const answers of [[undefined], ["anthropic/sonnet", undefined]]) {
       const { ctx } = menu(answers);
       expect(await configureAgent(ctx, agents)).toBeUndefined();
     }
     expect(await readFile(join(dir, "a.md"), "utf8")).toBe("---\nname: a\ndescription: d\n---\nBody");
   });
 
+  test("with several agents it asks which one first, and backing out there changes nothing", async () => {
+    await writeFile(join(dir, "a.md"), "---\nname: a\ndescription: d\n---\nBody");
+    await writeFile(join(dir, "b.md"), "---\nname: b\ndescription: d\n---\nBody");
+    const { ctx, asked } = menu([undefined]);
+    expect(await configureAgent(ctx, await load())).toBeUndefined();
+    expect(asked[0]!.title).toBe("Agent");
+    expect(asked[0]!.options).toEqual(["a  (inherit, inherit)", "b  (inherit, inherit)"]);
+  });
+
   test("an unwritable file is reported, not thrown", async () => {
-    const { ctx, notes } = menu(["a  (old/one, inherit)", "anthropic/sonnet", "off"]);
+    const { ctx, notes } = menu(["anthropic/sonnet", "off"]);
     const agent = { name: "a", description: "d", model: "old/one", prompt: "", source: "user" as const, path: join(dir, "missing.md") };
     expect(await configureAgent(ctx, [agent])).toBeUndefined();
     expect(notes[0]).toContain("Could not update");
