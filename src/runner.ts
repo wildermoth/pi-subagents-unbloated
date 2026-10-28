@@ -1,5 +1,6 @@
 /** Runs one Pi child over `--mode rpc` per RunSpec. See types.ts for the contract. */
 import { spawn, type ChildProcess } from "node:child_process";
+import { asRecord, assistantText, partialOf, settledOutcome } from "./outcome.ts";
 import { resolvePiCommand } from "./pi-command.ts";
 import { RpcConnection, RpcError, type ExitInfo, type JsonRecord, type RpcResponse } from "./protocol.ts";
 import type { Child, FailureKind, RunResult, RunSpec, Runner } from "./types.ts";
@@ -51,35 +52,6 @@ function signalTree(proc: ChildProcess, sig: NodeJS.Signals): void {
 /** Synchronously SIGKILL every live child. Registered on process exit; callable by shutdown code. */
 export function killAll(): void {
   for (const p of live) signalTree(p, "SIGKILL");
-}
-
-function truncate(text: string, max: number): { text: string; truncated: boolean } {
-  const buf = Buffer.from(text, "utf8");
-  if (buf.length <= max) return { text, truncated: false };
-  let cut = max;
-  let marker: string;
-  for (;;) {
-    marker = `\n[truncated: ${buf.length - cut} of ${buf.length} bytes omitted]`;
-    if (Buffer.byteLength(marker) > max) return { text: "[truncated]".slice(0, max), truncated: true };
-    const next = Math.max(0, max - Buffer.byteLength(marker));
-    if (cut <= next) break;
-    cut = next;
-    while (cut > 0 && (buf[cut]! & 0xc0) === 0x80) cut--; // do not split a UTF-8 sequence
-  }
-  return { text: buf.subarray(0, cut).toString("utf8") + marker, truncated: true };
-}
-
-/** Narrow an untrusted decoded value to an object, or undefined. */
-const asRecord = (v: unknown): JsonRecord | undefined => (v !== null && typeof v === "object" ? (v as JsonRecord) : undefined);
-
-function assistantText(msg: JsonRecord): string {
-  const { content } = msg;
-  if (!Array.isArray(content)) return typeof content === "string" ? content : "";
-  return content
-    .map(asRecord)
-    .filter((b): b is JsonRecord => b?.type === "text" && typeof b.text === "string")
-    .map((b) => b.text as string)
-    .join("");
 }
 
 export function createRunner(opts: RunnerOptions = {}): Runner {
@@ -152,21 +124,12 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
           }
         })();
       };
-      /** Whatever the child had said so far, so a cut-short run does not look like doing nothing. */
-      const partial = () => (lastAssistant ? truncate(assistantText(lastAssistant), maxResultBytes) : { text: "", truncated: false });
+      const partial = () => partialOf(lastAssistant, maxResultBytes);
       const fail = (kind: FailureKind, message: string): void => decide({ status: "failed", ...partial(), failure: { kind, message } });
 
       const finishIfSettled = (): void => {
         if (outcome || !acked || !settled) return;
-        const stop = lastAssistant?.stopReason;
-        if (!lastAssistant) return fail("protocol", "agent_settled without an assistant message");
-        if (stop === "error")
-          return fail("provider", typeof lastAssistant.errorMessage === "string" ? lastAssistant.errorMessage : "provider error");
-        if (stop === "aborted") return fail("provider", "run aborted unexpectedly");
-        if (stop === "length") return fail("provider", "model hit its output length limit; the result is partial");
-        if (stop !== "stop") return fail("protocol", `unexpected stopReason: ${String(stop)}`);
-        const t = truncate(assistantText(lastAssistant), maxResultBytes);
-        decide({ status: "completed", text: t.text, truncated: t.truncated });
+        decide(settledOutcome(lastAssistant, maxResultBytes));
       };
 
       /** Tell the display observer; it must never fail the run. */
