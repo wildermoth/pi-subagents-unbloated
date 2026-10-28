@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { harness, ok, run, started, tick, txt } from "./helpers/harness.ts";
@@ -64,7 +64,7 @@ test("isolated job runs in a worktree, diff shows its edits, apply lands them in
   await expect(run(h, cwd, { action: "apply", id })).rejects.toThrow("no isolated worktree");
 });
 
-test("isolated writers run in parallel while shared writers serialize", async () => {
+test("isolated writers get separate worktrees; by default agents share the tree and run in parallel", async () => {
   const cwd = await repo();
   const h = harness();
   await start(h, cwd, { isolate: true });
@@ -75,8 +75,9 @@ test("isolated writers run in parallel while shared writers serialize", async ()
   const h2 = harness();
   await start(h2, cwd);
   await start(h2, cwd);
-  await tick();
-  expect(h2.ctls.length).toBe(1); // second writer queued behind the first
+  await started(h2, 2);
+  expect(h2.ctls.length).toBe(2); // isolation is opt-in: no lock, both run at once
+  expect(h2.ctls[0]!.spec.cwd).toBe(h2.ctls[1]!.spec.cwd);
   for (const c of [...h.ctls, ...h2.ctls]) c.finish(ok("x"));
 });
 
@@ -133,31 +134,7 @@ test("isolate outside a git repo fails clearly without starting a job", async ()
   expect(h.ctls.length).toBe(0);
 });
 
-test("shared writers serialize across repository subdirectories and symlink aliases", async () => {
-  const cwd = await repo();
-  const subdir = join(cwd, "subdir");
-  await mkdir(subdir);
-  const h = harness();
-  h.setIdle(false);
-  await start(h, cwd);
-  await start(h, subdir);
-  expect(h.ctls).toHaveLength(1);
-  h.ctls[0]!.finish(ok("first"));
-  await started(h, 2);
-  expect(h.ctls).toHaveLength(2);
-  if (process.platform !== "win32") {
-    const alias = join(cwd, "alias");
-    await symlink(subdir, alias);
-    await start(h, alias);
-    expect(h.ctls).toHaveLength(2);
-    h.ctls[1]!.finish(ok("second"));
-    await started(h, 3);
-    expect(h.ctls).toHaveLength(3);
-  }
-  await h.handlers.session_shutdown!({}, h.ctx(cwd));
-});
-
-test("shared writers outside Git use canonical cwd", async () => {
+test("shared agents run in parallel in a non-Git directory too", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "psu-shared-"));
   dirs.push(cwd);
   await mkdir(join(cwd, ".pi", "agents"), { recursive: true });
@@ -165,6 +142,7 @@ test("shared writers outside Git use canonical cwd", async () => {
   const h = harness();
   await start(h, cwd);
   await start(h, cwd);
-  expect(h.ctls).toHaveLength(1);
+  await started(h, 2);
+  expect(h.ctls).toHaveLength(2);
   await h.handlers.session_shutdown!({}, h.ctx(cwd));
 });

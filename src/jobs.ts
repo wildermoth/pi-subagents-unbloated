@@ -21,8 +21,6 @@ export interface JobRecord {
 export interface StartRequest {
   agent: string;
   spec: RunSpec;
-  writes: boolean;
-  repoKey: string;
 }
 
 export interface Jobs {
@@ -35,13 +33,6 @@ export interface Jobs {
   wait(id: string): Promise<JobRecord>;
   shutdown(graceMs?: number): Promise<void>;
   readonly active: number;
-}
-
-const READ_ONLY = new Set(["read", "grep", "find", "ls"]);
-
-/** Unknown tools (incl. bash) count as writing; no allowlist means defaults, which write. */
-export function isWriter(tools?: string[]): boolean {
-  return tools === undefined || tools.some((t) => !READ_ONLY.has(t));
 }
 
 const TERMINAL = new Set<JobState>(["completed", "failed", "cancelled", "interrupted"]);
@@ -58,7 +49,7 @@ interface Entry {
   rec: JobRecord;
   req: StartRequest;
   child?: Child;
-  /** Holds a concurrency slot and (for writers) the repo lock. */
+  /** Holds a concurrency slot. */
   holding: boolean;
   cancelP?: Promise<JobRecord>;
   settled: Promise<JobRecord>;
@@ -88,7 +79,6 @@ export function createJobs(opts: {
   const entries = new Map<string, Entry>(); // live runtime data only
   const queue: Entry[] = [];
   const history: string[] = [];
-  const writerRepos = new Set<string>();
   let running = 0;
   let closed = false;
   let pumping = false;
@@ -108,7 +98,6 @@ export function createJobs(opts: {
     if (e.holding) {
       e.holding = false;
       running--;
-      if (e.req.writes) writerRepos.delete(e.req.repoKey);
     }
     e.rec.state = state;
     e.rec.endedAt = now();
@@ -132,7 +121,6 @@ export function createJobs(opts: {
   function launch(e: Entry): void {
     e.holding = true;
     running++;
-    if (e.req.writes) writerRepos.add(e.req.repoKey);
     e.rec.state = "starting";
     notify(opts.onChange, e.rec);
     if (isTerminal(e.rec.state)) return; // an observer may cancel before spawn
@@ -170,9 +158,9 @@ export function createJobs(opts: {
     try {
       for (;;) {
         if (closed || running >= max) return;
-        const i = queue.findIndex((q) => !q.req.writes || !writerRepos.has(q.req.repoKey));
-        if (i < 0) return;
-        launch(queue.splice(i, 1)[0]!);
+        const next = queue.shift();
+        if (!next) return;
+        launch(next);
       }
     } finally {
       pumping = false;

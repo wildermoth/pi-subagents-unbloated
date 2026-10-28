@@ -19,7 +19,7 @@ let isoMod: Promise<typeof import("./isolation.ts")> | undefined;
 const isolationModule = () => (isoMod ??= import("./isolation.ts"));
 export default function (pi: ExtensionAPI, injected?: Runner) {
   let ctx: ExtensionContext | undefined;
-  let state: { jobs: Jobs; inbox: Inbox; isWriter: (tools?: string[]) => boolean } | undefined;
+  let state: { jobs: Jobs; inbox: Inbox } | undefined;
   let pending: ReturnType<typeof build> | undefined; // parallel first calls must share one state
   let interrupted: JobRecord[] = [];
   const workspaces = new Map<string, Workspace>(); // job id -> isolated worktree, kept until apply or discard
@@ -79,7 +79,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   }
   async function build() {
     // Lazy: nothing but the tool declaration loads at startup.
-    const [{ createInbox }, { createJobs, isWriter }, runner] = await Promise.all([
+    const [{ createInbox }, { createJobs }, runner] = await Promise.all([
       import("./inbox.ts"),
       import("./jobs.ts"),
       injected ?? import("./runner.ts").then((m) => m.createRunner()),
@@ -94,7 +94,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
       },
       onActivity: render,
     });
-    return (state = { jobs, inbox, isWriter });
+    return (state = { jobs, inbox });
   }
 
   pi.registerTool({
@@ -126,7 +126,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
         throw new Error(`${(e as Error).message}. Available agents:\n${await agentList()}`, { cause: e });
       throw e;
     }
-    const { jobs, inbox, isWriter } = await getState();
+    const { jobs, inbox } = await getState();
     switch (p.action) {
       case "agents":
         return text(await agentList());
@@ -134,22 +134,13 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
         const { discoverAgents, resolveAgent } = await agentsModule();
         const { agents } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
         const def = resolveAgent(agents, p.agent!);
-        const writes = isWriter(def.tools);
-        let repoKey = c.cwd;
         let cwd = c.cwd;
-        // Resolve only for writers/isolation, never during registration or discovery.
-        if (writes || p.isolate) {
+        let ws: Workspace | undefined;
+        // Git isolation is opt-in; without it agents share the working tree. Resolve only then.
+        if (p.isolate) {
           cwd = await realpath(c.cwd);
           const iso = await isolationModule();
-          repoKey = await iso.repoRootOf(cwd).catch((e) => {
-            if (p.isolate) throw e;
-            return cwd; // non-Git workspaces still serialize through canonical cwd
-          });
-        }
-        let ws: Workspace | undefined;
-        if (p.isolate) {
-          const iso = await isolationModule();
-          const root = repoKey;
+          const root = await iso.repoRootOf(cwd);
           ws = await iso.create({ repoRoot: root, id: crypto.randomUUID().slice(0, 12) });
           cwd = join(ws.path, relative(root, cwd)); // root is canonical, so cwd must be too (macOS /var, Windows 8.3 names)
         }
@@ -157,8 +148,6 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
         try {
           rec = jobs.start({
             agent: def.name,
-            writes: !ws && writes, // an isolated writer cannot collide with anyone
-            repoKey: ws ? ws.path : repoKey,
             spec: {
               cwd,
               task: p.task!,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createJobs, isWriter, restoreInterrupted, type JobRecord, type StartRequest } from "../src/jobs.ts";
+import { createJobs, restoreInterrupted, type JobRecord, type StartRequest } from "../src/jobs.ts";
 import type { Child, RunResult, RunSpec, Runner } from "../src/types.ts";
 
 const ok = (text = "ok"): RunResult => ({ status: "completed", text, truncated: false });
@@ -50,21 +50,9 @@ const spec = (task = "t"): RunSpec => ({
 const req = (o: Partial<StartRequest> = {}): StartRequest => ({
   agent: "a",
   spec: spec(),
-  writes: false,
-  repoKey: "r",
   ...o,
 });
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
-
-describe("isWriter", () => {
-  test("rules", () => {
-    expect(isWriter()).toBe(true);
-    expect(isWriter(["read", "grep", "find", "ls"])).toBe(false);
-    expect(isWriter([])).toBe(false);
-    expect(isWriter(["read", "bash"])).toBe(true);
-    expect(isWriter(["edit"])).toBe(true);
-  });
-});
 
 describe("jobs", () => {
   test("unique ids, task truncated, lifecycle to completed", async () => {
@@ -166,13 +154,13 @@ describe("jobs", () => {
     const terminal: JobRecord[] = [];
     const jobs = createJobs({ runner: f.runner, maxConcurrent: 1, onTerminal: (r) => terminal.push(r) });
     f.failNext();
-    const a = jobs.start(req({ writes: true }));
+    const a = jobs.start(req());
     expect(a.state).toBe("failed");
     expect(a.result?.failure?.kind).toBe("launch");
     expect(jobs.active).toBe(0);
     expect(terminal.length).toBe(1);
     f.okNext();
-    const b = jobs.start(req({ writes: true }));
+    const b = jobs.start(req());
     expect(b.state).toBe("running");
   });
 
@@ -222,34 +210,17 @@ describe("jobs", () => {
     expect(d!.state).toBe("cancelled");
   });
 
-  test("writers serialize per repo; blocked writer does not block others", async () => {
-    const f = fake();
-    const jobs = createJobs({ runner: f.runner, maxConcurrent: 4 });
-    const w1 = jobs.start(req({ writes: true, repoKey: "x" }));
-    const w2 = jobs.start(req({ writes: true, repoKey: "x" }));
-    const r1 = jobs.start(req({ writes: false, repoKey: "x" }));
-    const w3 = jobs.start(req({ writes: true, repoKey: "y" }));
-    expect(w1.state).toBe("running");
-    expect(w2.state).toBe("queued");
-    expect(r1.state).toBe("running");
-    expect(w3.state).toBe("running");
-    f.children[0]!.finish(ok());
-    await jobs.wait(w1.id);
-    expect(w2.state).toBe("running");
-  });
-
-  test("blocked writer at queue head is skipped when slot frees", async () => {
+  test("jobs never serialize on what they might write: concurrency is the only limit", async () => {
     const f = fake();
     const jobs = createJobs({ runner: f.runner, maxConcurrent: 2 });
-    jobs.start(req({ writes: true, repoKey: "x" }));
-    jobs.start(req());
-    const w2 = jobs.start(req({ writes: true, repoKey: "x" }));
-    const r = jobs.start(req());
-    expect([w2.state, r.state]).toEqual(["queued", "queued"]);
-    f.children[1]!.finish(ok()); // frees a slot, but writer repo still locked
-    await tick();
-    expect(w2.state).toBe("queued");
-    expect(r.state).toBe("running");
+    const a = jobs.start(req());
+    const b = jobs.start(req());
+    const c = jobs.start(req());
+    const d = jobs.start(req());
+    expect([a.state, b.state, c.state, d.state]).toEqual(["running", "running", "queued", "queued"]);
+    f.children[1]!.finish(ok());
+    await jobs.wait(b.id);
+    expect([c.state, d.state]).toEqual(["running", "queued"]); // strict FIFO
   });
 
   test("cancel running (graceful) is idempotent", async () => {
@@ -350,7 +321,7 @@ describe("jobs", () => {
     expect(jobs.list().length).toBe(3);
   });
 
-  test("observer cancellation before spawn never launches or retains a writer lock", async () => {
+  test("observer cancellation before spawn never launches and frees its slot", async () => {
     const f = fake();
     let cancelStarting = true;
     const terminal: string[] = [];
@@ -361,14 +332,14 @@ describe("jobs", () => {
       },
       onTerminal: (r) => terminal.push(r.id),
     });
-    const cancelled = jobs.start(req({ writes: true }));
+    const cancelled = jobs.start(req());
     expect(cancelled.state).toBe("cancelled");
     expect(f.children).toHaveLength(0);
     expect(jobs.active).toBe(0);
     expect(await jobs.wait(cancelled.id)).toBe(cancelled);
     expect(terminal).toEqual([cancelled.id]);
     cancelStarting = false;
-    expect(jobs.start(req({ writes: true })).state).toBe("running");
+    expect(jobs.start(req()).state).toBe("running");
   });
 
   test("terminal history preserves record identity and completed APIs", async () => {
@@ -418,7 +389,7 @@ describe("jobs", () => {
       const n = 3 + Math.floor(rnd() * 6);
       const recs: JobRecord[] = [];
       for (let i = 0; i < n; i++) {
-        recs.push(jobs.start(req({ writes: rnd() < 0.5, repoKey: rnd() < 0.5 ? "x" : "y" })));
+        recs.push(jobs.start(req()));
       }
       const ops: Promise<unknown>[] = [];
       let guard = 0;

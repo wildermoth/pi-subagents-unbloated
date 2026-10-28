@@ -48,7 +48,7 @@ subagent({ action, agent?, task?, id?, message?, wait?, isolate? })
 
 Invalid combinations (for example `start` without `task`) are rejected with a short error. A `/subagents` command shows the job list.
 
-Concurrency is a fixed limit of 4 running jobs with one queue (first eligible job in FIFO order: a writer blocked on a repository lock is skipped so later runnable jobs can start). At most 64 jobs may be outstanding (running or queued); `start` beyond that is rejected. Results are bounded in size and truncated with an explicit marker.
+Concurrency is a fixed limit of 4 running jobs with one strict FIFO queue. At most 64 jobs may be outstanding (running or queued); `start` beyond that is rejected. Results are bounded in size and truncated with an explicit marker.
 
 ### Status widget
 
@@ -70,7 +70,7 @@ Each line is `state | agent: ` plus the first 80 characters of the job's latest 
 - `apply <id>` is conflict-checked: if any file the agent touched has since changed in your tree, it fails and changes nothing, and the worktree is kept. On success it applies the changes and removes the worktree.
 - `discard <id>` removes the worktree and branch. Nothing is discarded implicitly; an unreviewed worktree stays until you `apply` or `discard` it.
 - Worktrees live under `<git-common-dir>/pi-subagents`, so they do not show up in `git status`, and they survive Pi restarts. The job itself does not survive (it is reported `interrupted`), but you can still `diff`, `apply` or `discard` its worktree.
-- Isolated writers run in parallel, since they cannot collide. Shared (non-isolated) writers are serialized per canonical repository root (canonical working directory outside Git).
+- Isolation is opt-in. Without `isolate`, every agent works in your tree and runs in parallel with the others, whatever tools it has; if two edit the same file, the last write wins. Use `isolate: true` when parallel agents may touch the same files.
 
 ### How results reach the parent
 
@@ -124,7 +124,7 @@ Precedence: a project agent overrides a user agent of the same name. Within one 
 
 - Tool allowlists are not a sandbox. Children share the filesystem, network, credentials, and environment of the parent user. There is no custom sandbox in this package.
 - Background means non-blocking for the parent turn, not durable. Jobs do not survive Pi exiting. After a restart, jobs that were running are reported as `interrupted`; they are not resumed or restarted. Results that had finished but were never read are saved at shutdown and shown once, without waking the agent, at the next start.
-- Process isolation is not filesystem isolation. Read-only agents may run concurrently, but only one unisolated writer runs per repository at a time (`bash` counts as writing); others queue. Use `isolate: true` to run writers in parallel.
+- Process isolation is not filesystem isolation. Agents share your working tree and run concurrently up to the limit, with no locking; use `isolate: true` when parallel agents may edit the same files.
 - No automatic retries. A failed task is reported and left to the parent to decide, since retrying may repeat side effects.
 - No recursive subagents: children cannot launch children.
 - Not included by design: tmux, workflows, scheduling, memory, full-screen UI.
