@@ -45,6 +45,7 @@ const WS_ENTRY = "subagent-workspace";
 const UNREAD_ENTRY = "subagent-unread"; // results finished but never read when the session ended
 const isDone = (r: JobRecord) => r.state === "completed" || r.state === "failed";
 const MAX_DIFF_CHARS = 6000;
+const WAIT_HINT = "Results are delivered automatically when jobs finish. End your turn now; do not poll, sleep, or call list/status/inbox.";
 const line = (r: JobRecord) => `${r.id} ${r.agent} ${r.state}${r.delivered ? "" : r.result ? " (unread)" : ""}: ${r.task.slice(0, 60)}`;
 
 export default function (pi: ExtensionAPI, injected?: Runner) {
@@ -116,7 +117,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   pi.registerTool({
     name: "subagent",
     label: "Subagent",
-    description: "Delegate tasks to independent agents. action=agents lists them; start runs one (background unless wait).",
+    description: "Delegate to agents; start takes a name (agents is optional) and runs in background. After start, end your turn.",
     parameters: params,
     async execute(_id, args, signal, _onUpdate, c) {
       const p = args as Params;
@@ -188,7 +189,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
             rec.note = `worktree kept: diff ${rec.id}, then apply or discard ${rec.id}`;
             pi.appendEntry(WS_ENTRY, { jobId: rec.id, ws });
           }
-          if (!p.wait) return text(`started ${rec.id} (${def.name})`);
+          if (!p.wait) return text(`started ${rec.id} (${def.name}). ${WAIT_HINT}`);
           const onAbort = () => void jobs.cancel(rec.id);
           if (signal?.aborted) onAbort();
           else signal?.addEventListener("abort", onAbort, { once: true });
@@ -203,13 +204,15 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           return text(out);
         }
         case "list":
-          return text([...interrupted, ...jobs.list()].map((r) => line(r) + (workspaces.has(r.id) ? " [worktree]" : "")).join("\n") || "no jobs");
+          const all = [...interrupted, ...jobs.list()];
+          const out = all.map((r) => line(r) + (workspaces.has(r.id) ? " [worktree]" : "")).join("\n") || "no jobs";
+          return text(all.some((r) => !isDone(r) && r.state !== "cancelled" && r.state !== "interrupted") ? `${out}\n${WAIT_HINT}` : out);
         case "status": {
           need("id");
           const r = jobs.get(p.id!) ?? interrupted.find((j) => j.id === p.id);
           if (!r) throw new Error(`unknown job ${p.id}`);
           const done = inbox.take(r.id); // reading output consumes it, so no later wakeup repeats it
-          return text(done ? inbox.format([done]) : line(r));
+          return text(done ? inbox.format([done]) : isDone(r) || r.state === "cancelled" || r.state === "interrupted" ? line(r) : `${line(r)}\n${WAIT_HINT}`);
         }
         case "steer":
           need("id", "message");
@@ -256,7 +259,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           return text(`discarded ${p.id}`);
         }
         case "inbox":
-          return text(inbox.size ? inbox.format(inbox.drain()) : "no finished jobs pending");
+          return text(inbox.size ? inbox.format(inbox.drain()) : `no finished jobs pending. ${WAIT_HINT}`);
       }
     },
   });

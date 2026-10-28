@@ -74,7 +74,7 @@ test("a result read mid-turn never wakes the orchestrator afterwards", async () 
   h.setIdle(true);
   h.handlers.agent_settled!({}, h.ctx(cwd));
   expect(h.sent.length).toBe(1);
-  expect(txt(await run(h, cwd, { action: "inbox" }))).toBe("no finished jobs pending");
+  expect(txt(await run(h, cwd, { action: "inbox" }))).toMatch(/^no finished jobs pending\. .*End your turn/);
   expect(a).not.toBe(b);
 });
 
