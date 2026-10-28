@@ -1,5 +1,7 @@
 
-Default to using Bun instead of Node.js.
+Default to using Bun instead of Node.js for development, tests, and benchmarks.
+
+Exception: everything in `src/` ships as a Pi extension, and Pi loads extensions under Node. Keep `src/` Node-compatible (`node:` modules, no `Bun.*` APIs); Bun-only code belongs in `test/` and `bench/`.
 
 - Use `bun <file>` instead of `node <file>` or `ts-node <file>`
 - Use `bun test` instead of `jest` or `vitest`
