@@ -4,7 +4,7 @@ Subagents for Pi. Nothing else.
 
 A Pi extension that adds one tool, `subagent`, so the parent model can hand self-contained tasks to independent child agents and get compact results back. It is not a workflow engine, scheduler, or supervisor. The parent model plans; this package only runs things.
 
-- One tool, no system prompt changes, no agent list in the tool description.
+- One tool. The only prompt addition is a short agent list (name plus a 60-character blurb each, about 260 bytes for three agents), read once per session, so the model can `start` an agent without an `agents` call.
 - Zero runtime dependencies (Pi supplies its own packages as peer dependencies).
 - Nothing runs while idle: no child processes, no timers, no filesystem scans at registration.
 - One Pi child process per agent, controlled over Pi's RPC mode.
@@ -140,7 +140,7 @@ Measured on one machine (Linux under WSL2, Intel Core i5-14400F, Bun 1.3.13, Pi 
 
 | Metric | Measured |
 | --- | --- |
-| Cold added context | 719 B tool schema entry, 0 B system prompt (about 180 tokens, bytes/4 estimate; 720 B tools-only delta) vs 1810 B for Pi's official example subagent extension |
+| Cold added context | 719 B tool schema entry, 0 B system prompt before the agent list is added (the list adds about 90 bytes per agent, measured: 263 B for three agents) (about 180 tokens, bytes/4 estimate; 720 B tools-only delta) vs 1810 B for Pi's official example subagent extension |
 | Startup overhead | Pi spawn to `get_state` with the extension: delta vs bare Pi p50 9.9 ms (an empty extension costs p50 8.8 ms, so about 1.2 ms is ours). Paired p95 16.0 ms, noise-limited |
 | Extension factory | 0.1 ms |
 | Child launch (start to ack) | p50 252.0 ms, p95 273.4 ms (direct RPC baseline: p50 236.3 ms, p95 345.7 ms) |

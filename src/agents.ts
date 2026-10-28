@@ -5,6 +5,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { clip } from "./statusbar.ts";
 import type { AgentDef } from "./types";
 
 export interface DiscoverOpts {
@@ -113,5 +114,13 @@ export function listAgents(agents: Map<string, AgentDef>): string {
   return [...agents.values()]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((a) => `${a.name}: ${a.description}${a.source === "project" ? " (project)" : ""}`)
+    .join("\n");
+}
+
+/** One short line per agent for the system prompt: enough to pick an agent without an `agents` call. */
+export function briefAgents(agents: Map<string, AgentDef>, blurbChars = 60): string {
+  return [...agents.values()]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((a) => `${a.name}: ${clip(a.description, blurbChars)}`)
     .join("\n");
 }

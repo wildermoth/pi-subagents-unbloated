@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverAgents, listAgents, resolveAgent } from "../src/agents";
+import { briefAgents, discoverAgents, listAgents, resolveAgent } from "../src/agents";
 
 let root: string;
 let userDir: string;
@@ -135,4 +135,15 @@ test("listAgents tags project agents", async () => {
   await writeFile(join(await projectDir(), "p.md"), md("name: p\ndescription: proj one"));
   const { agents } = await discoverAgents({ cwd: root, userDir, projectTrusted: true });
   expect(listAgents(agents)).toBe("a: user one\np: proj one (project)");
+});
+
+test("briefAgents gives one clipped line per agent, sorted", async () => {
+  await writeFile(join(userDir, "b.md"), md("name: zed\ndescription: " + "long ".repeat(40)));
+  await writeFile(join(userDir, "a.md"), md("name: alpha\ndescription: Short one"));
+  const { agents } = await discoverAgents({ cwd: root, userDir, projectTrusted: false });
+  const lines = briefAgents(agents).split("\n");
+  expect(lines[0]).toBe("alpha: Short one");
+  expect(lines[1]).toMatch(/^zed: long long/);
+  expect([...lines[1]!.slice("zed: ".length)].length).toBe(60);
+  expect(lines[1]!.endsWith("…")).toBe(true);
 });

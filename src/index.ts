@@ -24,6 +24,8 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   let interrupted: JobRecord[] = [];
   const workspaces = new Map<string, Workspace>(); // job id -> isolated worktree, kept until apply or discard
 
+  let agentSection: Promise<string> | undefined; // cached for the session; reset at session_start
+
   let waking = false; // a wake is in flight; sendMessage defers inside agent_settled, so isIdle() stays true meanwhile
 
   /** The job's worktree, refusing while the job could still be writing to it. */
@@ -100,7 +102,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   pi.registerTool({
     name: "subagent",
     label: "Subagent",
-    description: "Delegate to agents: start needs agent (names: action=agents) and task, runs in background. Then end your turn.",
+    description: "Delegate to agents: start needs agent and task, runs in background. Then end your turn.",
     parameters: params,
     async execute(_id, args, signal, _onUpdate, c) {
       try {
@@ -278,6 +280,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
 
   pi.on("session_start", async (_e, c) => {
     ctx = c;
+    agentSection = undefined;
     const { jobs: seen, workspaces: restored, unread } = recover(c.sessionManager.getBranch());
     workspaces.clear();
     for (const [id, ws] of restored) workspaces.set(id, ws);
@@ -298,6 +301,22 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
         },
         { triggerTurn: false },
       );
+  });
+  /** Names and short blurbs go into the system prompt once per session, so the model can start agents without an `agents` call. */
+  pi.on("before_agent_start", async (e, c) => {
+    if (!e.systemPromptOptions.selectedTools.includes("subagent")) return;
+    try {
+      // One discovery per session keeps the prompt prefix stable (cache friendly); `agents` still reads live.
+      agentSection ??= (async () => {
+        const { discoverAgents, briefAgents } = await agentsModule();
+        const { agents } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
+        return agents.size ? `Agents for the subagent tool (agent=<name>):\n${briefAgents(agents)}` : "";
+      })();
+      const section = await agentSection;
+      if (section) e.systemPromptOptions.sections.subagents = section;
+    } catch {
+      agentSection = undefined; // discovery failed; the model can still call `agents`
+    }
   });
   pi.on("agent_start", () => {
     waking = false;

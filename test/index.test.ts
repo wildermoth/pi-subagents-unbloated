@@ -118,6 +118,21 @@ test("the widget shows live jobs and clears once their results are delivered", a
   expect(h.widgets.at(-1)).toBeUndefined();
 });
 
+test("agent names and blurbs reach the system prompt once per session, only when the tool is active", async () => {
+  const cwd = await project();
+  const h = harness();
+  const event = (tools: string[]) => ({ systemPromptOptions: { selectedTools: tools, sections: {} as Record<string, string> } });
+  const off = event(["read"]);
+  await h.handlers.before_agent_start!(off, h.ctx(cwd));
+  expect(off.systemPromptOptions.sections.subagents).toBeUndefined();
+  const on = event(["read", "subagent"]);
+  await h.handlers.before_agent_start!(on, h.ctx(cwd));
+  expect(on.systemPromptOptions.sections.subagents).toMatch(/^Agents for the subagent tool[\s\S]*\nscout: /);
+  const again = event(["subagent"]);
+  await h.handlers.before_agent_start!(again, h.ctx(cwd));
+  expect(again.systemPromptOptions.sections.subagents).toBe(on.systemPromptOptions.sections.subagents);
+});
+
 test("start without an agent names the available agents in the error", async () => {
   const cwd = await project();
   const h = harness();
