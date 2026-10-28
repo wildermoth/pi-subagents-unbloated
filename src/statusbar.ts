@@ -65,7 +65,7 @@ const TOOLS: Record<string, [verb: string, noun: string]> = {
   web_fetch: ["fetching", "page"],
 };
 
-/** "editing 2 files…", or what it last said when no tool is running, or "thinking…". */
+/** "editing 2 files…", or the end of what it is saying when no tool is running, or "thinking…". */
 export function activity(p: Progress | undefined): string {
   const counts = new Map<string, number>();
   for (const name of p?.active ?? []) counts.set(name, (counts.get(name) ?? 0) + 1);
@@ -76,8 +76,9 @@ export function activity(p: Progress | undefined): string {
         return n > 1 ? `${verb} ${n} ${noun}s` : verb;
       })
       .join(", ")}…`;
-  const said = clip(p?.text.split("\n").find((l) => l.trim()) ?? "", 60);
-  return said ? `${said}${(p?.text.length ?? 0) > said.length ? "…" : ""}` : "thinking…";
+  // The end of the latest line, so the row keeps moving while text streams in.
+  const flat = clip(p?.text.split("\n").findLast((l) => l.trim()) ?? "", Infinity);
+  return flat.length > 60 ? `…${flat.slice(-59)}` : flat || "thinking…";
 }
 
 const icon = (r: JobRecord, frame: number, s: Style): string =>
@@ -96,7 +97,7 @@ function stats(r: JobRecord, now: number, s: Style): string {
   const pctStyle = pct >= 85 ? s.error : pct >= 70 ? s.warn : s.dim;
   const context = isRunning(r) && pct ? s.dim(" (") + pctStyle(`${pct}%`) + s.dim(")") : "";
   return [
-    s.dim(`↻${p?.turns ?? 0}`),
+    s.dim(`↻ ${p?.turns ?? 0}`),
     s.dim(`${p?.tools ?? 0} tool use${p?.tools === 1 ? "" : "s"}`),
     s.dim(`${tokens(p?.tokens ?? 0)} token`) + context,
     s.dim(elapsed((r.endedAt ?? now) - (r.startedAt ?? r.createdAt))),

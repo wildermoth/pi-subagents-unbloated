@@ -110,7 +110,7 @@ test("the widget shows live jobs and clears once their results are delivered", a
   await run(h, cwd, { action: "start", agent: "scout", task: "look around" });
   expect(h.widgetLines()?.[1]).toMatch(/^└─ \S+ scout {2}look around · /);
   h.ctls[0]!.spec.onProgress!({ turns: 2, tools: 3, tokens: 1500, active: ["read"], text: "" });
-  expect(h.widgetLines()?.[1]).toMatch(/↻2 · 3 tool uses · 1\.5k token · /);
+  expect(h.widgetLines()?.[1]).toMatch(/↻ 2 · 3 tool uses · 1\.5k token · /);
   expect(h.widgetLines()?.[2]).toMatch(/⎿ {2}reading…$/);
   h.setIdle(false); // mid-turn: no wakeup, so the finished job stays visible until read
   h.ctls[0]!.finish(ok("found it"));

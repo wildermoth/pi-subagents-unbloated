@@ -47,9 +47,9 @@ describe("renderStatus", () => {
     );
     expect(lines).toEqual([
       "● Agents",
-      `├─ ${FRAMES[2]} agent-1  task 1 · ↻5 · 5 tool uses · 33.8k token (63%) · 12.3s`,
+      `├─ ${FRAMES[2]} agent-1  task 1 · ↻ 5 · 5 tool uses · 33.8k token (63%) · 12.3s`,
       "│      ⎿  editing 2 files…",
-      `├─ ${FRAMES[2]} agent-2  task 2 · ↻3 · 1 tool use · 12.4k token (8%) · 12.3s`,
+      `├─ ${FRAMES[2]} agent-2  task 2 · ↻ 3 · 1 tool use · 12.4k token (8%) · 12.3s`,
       "│      ⎿  searching…",
       "└─ 2 queued",
     ]);
@@ -58,7 +58,7 @@ describe("renderStatus", () => {
   test("a row without progress yet shows zeros and 'thinking…', never a missing field", () => {
     expect(renderStatus([rec("1", "running")], opts())).toEqual([
       "● Agents",
-      `└─ ${FRAMES[2]} agent-1  task 1 · ↻0 · 0 tool uses · 0 token · 12.3s`,
+      `└─ ${FRAMES[2]} agent-1  task 1 · ↻ 0 · 0 tool uses · 0 token · 12.3s`,
       "       ⎿  thinking…",
     ]);
   });
@@ -82,9 +82,9 @@ describe("renderStatus", () => {
     );
     expect(lines).toEqual([
       "○ Agents",
-      "├─ ✓ agent-1  task 1 · ↻4 · 7 tool uses · 900 token · 3.1s",
-      "├─ ✗ agent-2  task 2 · ↻0 · 0 tool uses · 0 token · 1.0s error: Pi exited",
-      "└─ ■ agent-3  task 3 · ↻0 · 0 tool uses · 0 token · 2.0s",
+      "├─ ✓ agent-1  task 1 · ↻ 4 · 7 tool uses · 900 token · 3.1s",
+      "├─ ✗ agent-2  task 2 · ↻ 0 · 0 tool uses · 0 token · 1.0s error: Pi exited",
+      "└─ ■ agent-3  task 3 · ↻ 0 · 0 tool uses · 0 token · 2.0s",
     ]);
   });
 
@@ -136,10 +136,12 @@ describe("activity", () => {
     expect(activity(progress({ active: ["read", "grep", "read"] }))).toBe("reading 2 files, searching…");
     expect(activity(progress({ active: ["web_search", "mystery"] }))).toBe("searching the web, using mystery…");
   });
-  test("with no tool running it shows the start of the latest message, else thinking", () => {
-    expect(activity(progress({ text: "\n  Found the bug in auth.ts\nmore" }))).toBe("Found the bug in auth.ts…");
+  test("with no tool running it shows the end of the latest line, so streaming text keeps moving", () => {
+    expect(activity(progress({ text: "first line\n  Found the bug in auth.ts  \n\n" }))).toBe("Found the bug in auth.ts");
     expect(activity(progress({ text: "short" }))).toBe("short");
-    expect(activity(progress({ text: "x".repeat(200) })).endsWith("…")).toBe(true);
+    const long = `${"a".repeat(100)}END`;
+    expect(activity(progress({ text: long }))).toBe(`…${"a".repeat(56)}END`);
+    expect([...activity(progress({ text: long }))]).toHaveLength(60);
     expect(activity(progress())).toBe("thinking…");
     expect(activity(undefined)).toBe("thinking…");
   });
