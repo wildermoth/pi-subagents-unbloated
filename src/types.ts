@@ -32,14 +32,14 @@ export type RunStatus = "completed" | "failed" | "cancelled";
 
 export type FailureKind = "launch" | "protocol" | "exit" | "timeout" | "provider" | "rejected";
 
-export interface RunResult {
-  status: RunStatus;
+export type RunResult = {
   /** Final assistant text, bounded by the runner's maxResultBytes. */
   text: string;
   truncated: boolean;
-  /** Present when status is failed. */
-  failure?: { kind: FailureKind; message: string };
-}
+} & (
+  | { status: "failed"; failure: { kind: FailureKind; message: string } }
+  | { status: "completed" | "cancelled"; failure?: never }
+);
 
 /** A live child. Exactly one of done's outcomes occurs; cancel/steer are idempotent and safe after done. */
 export interface Child {
