@@ -18,6 +18,7 @@
 | `src/progress.ts` | Turns the event stream (identical for RPC and SDK) into a progress snapshot: turns, tool calls, context size, running tools, latest text. Counts move while a message streams; the provider's usage replaces the estimate when it ends. |
 | `src/statusbar.ts` | Pure renderer for the live job widget: tree lines, spinner, stats, tool-based activity, capped at 5 rows plus a summary row. Styles and width fitting are injected. |
 | `src/widget.ts` | Mounts that renderer above the editor, repaints on change, and runs the spinner timer only while a job is running. |
+| `src/agent-list.ts` | Keyboard control of the widget: Down at an empty prompt starts a cursor over the rows, Enter opens a steer/cancel/result/model menu. Consumes Esc while open so it cannot cancel the turn. |
 | `src/agent-config.ts` | The `/subagent-model` menu and the frontmatter edit it performs. |
 | `src/recovery.ts` | Replays persisted session entries in one pass: job records, live worktrees, unread results. |
 | `src/agents.ts` | On-demand agent discovery, frontmatter parsing via Pi's parser, trust and precedence rules. |

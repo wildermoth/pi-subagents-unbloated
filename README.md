@@ -70,6 +70,7 @@ In the terminal UI a widget above the editor shows running jobs and finished job
 - **Activity line:** the tools running right now (`reading`, `editing 2 files`, `searching the web`), otherwise the end of the text it is writing, otherwise `thinking…`.
 - **Overflow:** at most 5 jobs are listed. The rest collapse into a final `+N more, M queued` row, or `M queued` alone.
 - **Lifetime:** a finished job leaves the widget once its result has been delivered to the model. The widget clears when nothing is left and only animates while a job is running.
+- **Keyboard:** press **Down** at an empty prompt to move a cursor (`▸`) onto the agents. Up and Down move it, **Enter** opens a menu for the selected agent, and **Esc** closes the list. A running agent offers *Steer* (type a message to redirect it), *Cancel* and *Model and thinking* (see below). A finished one offers *Show result* and *Model and thinking*. Esc is consumed while the list is open, so it never cancels Pi's current turn; with the list closed, Esc is Pi's again. The list does nothing while you are typing or while one of Pi's own dialogs has the keyboard.
 - It costs no model context, is not persisted, and is skipped outside the terminal UI. Both the child-process and in-process backends feed it from the same events.
 
 ### Worktree isolation
