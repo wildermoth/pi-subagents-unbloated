@@ -181,7 +181,8 @@ async function diverged(ws: Workspace, snap: string, paths: string[]): Promise<s
   for (let i = 0; i < paths.length; i += 200) {
     const out = await git(ws.repoRoot, ["ls-tree", "-z", snap, "--", ...paths.slice(i, i + 200)]);
     for (const rec of nulList(out)) {
-      const [meta = "", name = ""] = rec.split("\t");
+      const tab = rec.indexOf("\t");
+      const meta = rec.slice(0, tab), name = rec.slice(tab + 1);
       const [mode, , sha] = meta.split(" ");
       want.set(name, `${mode} ${sha}`);
     }

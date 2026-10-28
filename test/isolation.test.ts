@@ -260,3 +260,16 @@ test("invalid ids are rejected", async () => {
     expect((await create({ repoRoot: repo, id }).catch((e) => e)).message).toContain("invalid");
   }
 });
+
+// Tabs are valid POSIX filenames, but forbidden in Windows filenames.
+test.skipIf(win)("apply preserves tabs in tracked filenames", async () => {
+  const name = "a\tb.txt";
+  await put(repo, name, "original\n");
+  await git(repo, "add", name);
+  await git(repo, "commit", "-qm", "tab filename");
+  const ws = await create({ repoRoot: repo, id: "tab" });
+  await put(ws.path, name, "agent\n");
+  expect((await inspect(ws)).changed).toEqual([name]);
+  expect((await apply(ws)).applied).toEqual([name]);
+  expect(await read(repo, name)).toBe("agent\n");
+});
