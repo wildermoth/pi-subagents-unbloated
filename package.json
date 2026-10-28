@@ -14,7 +14,8 @@
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bench": "bun bench/startup.ts && bun bench/delegation.ts && bun bench/context.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
