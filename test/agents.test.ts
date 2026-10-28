@@ -147,3 +147,17 @@ test("briefAgents gives one clipped line per agent, sorted", async () => {
   expect([...lines[1]!.slice("zed: ".length)].length).toBe(60);
   expect(lines[1]!.endsWith("…")).toBe(true);
 });
+
+test('inprocess frontmatter accepts true or "true" and defaults to off', async () => {
+  await writeFile(join(userDir, "a.md"), md("name: a\ndescription: d\ninprocess: true"));
+  await writeFile(join(userDir, "b.md"), md('name: b\ndescription: d\ninprocess: "true"'));
+  await writeFile(join(userDir, "c.md"), md("name: c\ndescription: d\ninprocess: false"));
+  await writeFile(join(userDir, "d.md"), md("name: d\ndescription: d"));
+  const { agents } = await discoverAgents({ cwd: root, userDir, projectTrusted: false });
+  expect([...agents.values()].map((a) => [a.name, a.inprocess])).toEqual([
+    ["a", true],
+    ["b", true],
+    ["c", undefined],
+    ["d", undefined],
+  ]);
+});

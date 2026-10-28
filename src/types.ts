@@ -9,6 +9,8 @@ export interface AgentDef {
   model?: string;
   /** Markdown body, appended to the child's system prompt. */
   prompt: string;
+  /** Run in the parent process through Pi's SDK instead of a child Pi process. Cheaper, but no hard kill or crash isolation. */
+  inprocess?: boolean;
   source: "user" | "project";
   path: string;
 }
@@ -26,6 +28,8 @@ export interface RunSpec {
   timeoutMs: number;
   /** Max time from launch to prompt acknowledgement. */
   launchTimeoutMs: number;
+  /** Run in-process through Pi's SDK instead of as a child Pi process. Chooses the backend and the concurrency lane. */
+  inprocess?: boolean;
   /** Display only: called with the text of each completed assistant message. Must not throw into the run. */
   onActivity?: (text: string) => void;
 }

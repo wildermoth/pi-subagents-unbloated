@@ -50,6 +50,10 @@ function toTools(v: unknown): string[] | undefined {
   return tools.length ? tools : undefined;
 }
 
+function toFlag(v: unknown): boolean | undefined {
+  return v === true || (typeof v === "string" && v.trim().toLowerCase() === "true") ? true : undefined;
+}
+
 function toModel(v: unknown): string | undefined {
   if (typeof v !== "string") return undefined;
   const m = v.trim();
@@ -84,7 +88,16 @@ async function loadDir(dir: string, source: AgentDef["source"], warnings: string
         warnings.push(`${path}: duplicate agent "${name}", keeping ${prior.path}`);
         continue;
       }
-      out.set(name, { name, description, tools: toTools(fm.tools), model: toModel(fm.model), prompt: body, source, path });
+      out.set(name, {
+        name,
+        description,
+        tools: toTools(fm.tools),
+        model: toModel(fm.model),
+        inprocess: toFlag(fm.inprocess),
+        prompt: body,
+        source,
+        path,
+      });
     } catch (e) {
       warnings.push(`${path}: ${msg(e)}`);
     }
