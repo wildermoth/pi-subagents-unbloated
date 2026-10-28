@@ -7,7 +7,7 @@ A Pi extension that adds one tool, `subagent`, so the parent model can hand self
 - One tool. The only prompt addition is a short agent list (name plus a 60-character blurb each, about 260 bytes for three agents), read once per session, so the model can `start` an agent without an `agents` call.
 - Zero runtime dependencies (Pi supplies its own packages as peer dependencies).
 - Nothing runs while idle: no child processes, no timers, no filesystem scans at registration.
-- One Pi child process per agent, controlled over Pi's RPC mode.
+- One Pi child process per agent by default, controlled over Pi's RPC mode. Agents that opt in with `inprocess: true` run inside the parent process through Pi's SDK instead.
 
 ## Install
 
@@ -48,7 +48,7 @@ subagent({ action, agent?, task?, id?, message?, wait?, isolate? })
 
 Invalid combinations (for example `start` without `task`) are rejected with a short error. A `/subagents` command shows the job list.
 
-Concurrency is a fixed limit of 4 running jobs with one strict FIFO queue. At most 64 jobs may be outstanding (running or queued); `start` beyond that is rejected. Results are bounded in size and truncated with an explicit marker.
+Concurrency is limited per backend: 6 child processes and 50 in-process agents at once, with one strict FIFO queue per backend (a full backend never blocks the other). At most 128 jobs may be outstanding (running or queued); `start` beyond that is rejected. Results are bounded in size and truncated with an explicit marker.
 
 ### Status widget
 
@@ -101,8 +101,22 @@ You are a careful code reviewer. Report concrete problems with file and line.
 | `description` | yes | Shown by `agents`. |
 | `tools` | no | Comma-separated allowlist passed to the child. Omitted means Pi's default tools. |
 | `model` | no | A Pi model id, or `inherit` (default) to use the parent's current model. |
+| `inprocess` | no | `true` runs the agent in the parent process through Pi's SDK instead of a child Pi process (default `false`). See below. |
 
-The body is appended to the child's system prompt. There are no tier aliases, inheritance, or routing.
+The body is appended to the child's system prompt.
+
+### In-process agents
+
+`inprocess: true` trades isolation for cost. Measured against the real SDK with a local fake model, 20 in-process agents grew the process by about 18 MB in total, where 20 child processes would be around 2 GB. Use it for trusted, mostly read-only agents that you fan out widely, such as web researchers.
+
+It behaves the same from the model's side (same tool, results, steering, cancel, widget). What you give up:
+
+- No crash isolation: an uncaught failure in one agent shares the parent's process.
+- No hard kill: cancel and timeout call the SDK's abort, which stops the turn and the tool processes it started, but a tool that ignores the abort could outlive it.
+- Credentials and environment are shared with the parent, and all in-process agents share one model and credential runtime.
+- It is coupled to Pi's SDK, whose internals have changed between releases, so a Pi upgrade is more likely to affect it than the RPC protocol.
+
+The agent's tool allowlist, system prompt, model, thinking level and project trust are applied the same way as for child processes. Extensions, skills, prompt templates and themes stay off, and project `AGENTS.md`/`CLAUDE.md` files still load. There are no tier aliases, inheritance, or routing.
 
 Where agents live:
 
