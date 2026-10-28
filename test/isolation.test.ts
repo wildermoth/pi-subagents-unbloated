@@ -273,3 +273,43 @@ test.skipIf(win)("apply preserves tabs in tracked filenames", async () => {
   expect((await apply(ws)).applied).toEqual([name]);
   expect(await read(repo, name)).toBe("agent\n");
 });
+
+test("inspect counts omitted Unicode characters without retaining the full diff", async () => {
+  const ws = await create({ repoRoot: repo, id: "unicode" });
+  await put(ws.path, "unicode.txt", "😀é\n".repeat(100_000));
+  const result = await inspect(ws);
+  const full = await git(ws.path, "diff", "--cached", "--no-ext-diff", "--no-textconv", "--no-renames",
+    "--src-prefix=a/", "--dst-prefix=b/", `refs/pi-subagents/${ws.id}/snapshot`);
+  const marker = /\n\[diff truncated: (\d+) characters omitted\]\n$/;
+  const prefix = result.diff.replace(marker, "");
+  expect(prefix.length).toBeLessThanOrEqual(100_000);
+  expect(full.startsWith(prefix)).toBe(true);
+  expect(Number(result.diff.match(marker)?.[1])).toBe(full.length - prefix.length);
+  expect(prefix).not.toContain("�");
+  // Inspection truncation must not truncate the patch subsequently applied.
+  await apply(ws);
+  expect(await read(repo, "unicode.txt")).toBe(await read(ws.path, "unicode.txt"));
+});
+
+// A clean filter can edit the worktree while apply checks the parent. Its patch
+// must still match the already inspected path set, not a second staging scan.
+test.skipIf(win)("apply uses one frozen tree even if files change during conflict checks", async () => {
+  await put(repo, ".gitattributes", "a.txt filter=mutate\n");
+  await git(repo, "add", ".gitattributes");
+  await git(repo, "commit", "-qm", "attributes");
+  const ws = await create({ repoRoot: repo, id: "frozen" });
+  await put(ws.path, "a.txt", "agent\n");
+  const script = join(tmp, "mutate.cjs");
+  await writeFile(script, `
+    const fs = require("node:fs");
+    if (fs.realpathSync(process.cwd()) === fs.realpathSync(${JSON.stringify(repo)}))
+      fs.writeFileSync(${JSON.stringify(join(ws.path, "b.txt"))}, "late edit\\n");
+    process.stdout.write(fs.readFileSync(0));
+  `);
+  const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
+  await git(repo, "config", "filter.mutate.clean", `${quote(process.execPath)} ${quote(script)}`);
+  expect((await apply(ws)).applied).toEqual(["a.txt"]);
+  expect(await read(ws.path, "b.txt")).toBe("late edit\n");
+  expect(await read(repo, "b.txt")).toBe("b\n");
+  expect(await read(repo, "a.txt")).toBe("agent\n");
+});

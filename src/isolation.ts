@@ -34,14 +34,14 @@ export class ConflictError extends IsolationError {
 }
 
 const MAX_DIFF = 100_000;
-const DIFF = ["diff", "--cached", "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/"];
+const DIFF = ["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/"];
 // hooks off: isolation plumbing must not run user hooks
 const QUIET = ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false"];
 const snapRef = (id: string) => `refs/pi-subagents/${id}/snapshot`;
 
-interface Out { code: number; out: Uint8Array; err: string }
+interface Out { code: number; out: Uint8Array; err: string; omitted: number }
 
-async function run(cwd: string, args: string[], input?: Uint8Array): Promise<Out> {
+async function run(cwd: string, args: string[], input?: Uint8Array, maxChars?: number): Promise<Out> {
   // node:child_process, not Bun.spawn: Pi loads extensions under Node.
   return new Promise((resolve, reject) => {
     const fail = (e: Error) => reject(new IsolationError("missing", `cannot run git in ${cwd}: ${e.message}`, cwd));
@@ -52,11 +52,27 @@ async function run(cwd: string, args: string[], input?: Uint8Array): Promise<Out
     });
     const out: Buffer[] = [];
     const err: Buffer[] = [];
-    proc.stdout!.on("data", (d: Buffer) => out.push(d));
+    let total = 0, kept = 0;
+    const limit = maxChars ?? Infinity;
+    if (maxChars !== undefined) proc.stdout!.setEncoding("utf8");
+    proc.stdout!.on("data", (d: Buffer | string) => {
+      if (typeof d !== "string") out.push(d);
+      else {
+        // Keep draining for accurate omission counts, retaining only the display prefix.
+        if (total < limit) {
+          let prefix = d.slice(0, limit - total);
+          // Do not turn a UTF-16 boundary inside an astral character into U+FFFD.
+          if (/[\uD800-\uDBFF]$/.test(prefix)) prefix = prefix.slice(0, -1);
+          out.push(Buffer.from(prefix));
+          kept += prefix.length;
+        }
+        total += d.length;
+      }
+    });
     proc.stderr!.on("data", (d: Buffer) => err.push(d));
     proc.on("error", fail);
     proc.on("close", (code) =>
-      resolve({ code: code ?? 1, out: new Uint8Array(Buffer.concat(out)), err: Buffer.concat(err).toString().trim() }));
+      resolve({ code: code ?? 1, out: Buffer.concat(out), err: Buffer.concat(err).toString().trim(), omitted: total - kept }));
     if (input) {
       proc.stdin!.on("error", () => {}); // git may exit before reading everything
       proc.stdin!.end(input);
@@ -158,20 +174,21 @@ async function snapshotOf(ws: Workspace): Promise<string> {
   return text(r.out).trim();
 }
 
-// Stage everything in the worktree (index only) so the diff includes new files.
-async function agentDiff(ws: Workspace, extra: string[]): Promise<Uint8Array> {
+// Freeze the staged tree once so filenames and patch describe the same content.
+async function changesOf(ws: Workspace): Promise<{ snap: string; tree: string; changed: string[] }> {
   const snap = await snapshotOf(ws);
   await git(ws.path, ["add", "-A"]);
-  return git(ws.path, [...DIFF, ...extra, snap]);
+  const tree = await gitText(ws.path, ["write-tree"]);
+  const changed = nulList(await git(ws.path, [...DIFF, "--name-only", "-z", snap, tree]));
+  return { snap, tree, changed };
 }
 
 /** Agent changes only: worktree vs the snapshot taken at create. Stages files in the worktree index. */
 export async function inspect(ws: Workspace): Promise<{ changed: string[]; diff: string; clean: boolean }> {
-  const changed = nulList(await agentDiff(ws, ["--name-only", "-z"]));
-  let diff = text(await agentDiff(ws, []));
-  if (diff.length > MAX_DIFF) {
-    diff = `${diff.slice(0, MAX_DIFF)}\n[diff truncated: ${diff.length - MAX_DIFF} characters omitted]\n`;
-  }
+  const { snap, tree, changed } = await changesOf(ws);
+  const r = await run(ws.path, [...DIFF, snap, tree], undefined, MAX_DIFF);
+  if (r.code !== 0) throw new IsolationError("git", `git diff failed: ${r.err}`, ws.path);
+  const diff = text(r.out) + (r.omitted ? `\n[diff truncated: ${r.omitted} characters omitted]\n` : "");
   return { changed, diff, clean: changed.length === 0 };
 }
 
@@ -216,12 +233,11 @@ export async function apply(ws: Workspace): Promise<{ applied: string[] }> {
   if (top.code !== 0 || (await realpath(text(top.out).trim())) !== (await realpath(ws.repoRoot))) {
     throw new IsolationError("git", `target is not the workspace's repo: ${ws.repoRoot}`, ws.repoRoot);
   }
-  const snap = await snapshotOf(ws);
-  const applied = nulList(await agentDiff(ws, ["--name-only", "-z"]));
+  const { snap, tree, changed: applied } = await changesOf(ws);
   if (applied.length === 0) return { applied };
   const bad = await diverged(ws, snap, applied);
   if (bad.length) throw new ConflictError(bad, ws.path);
-  const patch = await agentDiff(ws, ["--binary"]);
+  const patch = await git(ws.path, [...DIFF, "--binary", snap, tree]);
   try {
     await git(ws.repoRoot, ["apply", "--check", "--binary"], patch);
     await git(ws.repoRoot, ["apply", "--binary"], patch);
@@ -234,7 +250,7 @@ export async function apply(ws: Workspace): Promise<{ applied: string[] }> {
 /** Remove worktree, branch and snapshot ref. Refuses if the agent changed anything unless force. Stops at the first git failure. */
 export async function discard(ws: Workspace, opts: { force?: boolean } = {}): Promise<void> {
   if (await exists(ws.path)) {
-    if (!opts.force && !(await inspect(ws)).clean) {
+    if (!opts.force && (await changesOf(ws)).changed.length !== 0) {
       throw new IsolationError("dirty", `worktree has changes, use force to discard: ${ws.path}`, ws.path);
     }
     await git(ws.repoRoot, ["worktree", "remove", "--force", ws.path]);
