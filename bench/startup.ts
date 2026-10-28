@@ -15,7 +15,7 @@ if (process.argv.includes("--child")) {
   (globalThis as any).setInterval = (...a: any[]) => (timers.push("setInterval"), (orig.si as any)(...a));
   (globalThis as any).setImmediate = (...a: any[]) => (timers.push("setImmediate"), (orig.sim as any)(...a));
   const calls: string[] = [];
-  const stub = new Proxy({}, { get: (_t, k) => (..._a: any[]) => { calls.push(String(k)); return undefined; } });
+  const stub = new Proxy({}, { get: (_t, k) => () => { calls.push(String(k)); return undefined; } });
   const hb = (process as any)._getActiveHandles?.().length ?? -1;
   const t1 = performance.now();
   mod.default(stub);

@@ -96,5 +96,5 @@ for (const n of LEVELS) {
   out.levels[n].cancel = row(`cancel-all x${n} (all cancelled, 0 leaks)`, sh);
 }
 console.log("\nJSON " + JSON.stringify(out));
-ok.server.stop(true); hang.server.stop(true);
+void ok.server.stop(true); void hang.server.stop(true);
 process.exit(0);

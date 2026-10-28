@@ -84,7 +84,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     }
   }
   const flushIfIdle = (wake = true) => {
-    let idle = false;
+    let idle: boolean;
     try {
       idle = !!ctx?.isIdle();
     } catch {
@@ -203,10 +203,11 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           if (rec.state === "failed") throw new Error(out);
           return text(out);
         }
-        case "list":
+        case "list": {
           const all = [...interrupted, ...jobs.list()];
           const out = all.map((r) => line(r) + (workspaces.has(r.id) ? " [worktree]" : "")).join("\n") || "no jobs";
           return text(all.some((r) => !isDone(r) && r.state !== "cancelled" && r.state !== "interrupted") ? `${out}\n${WAIT_HINT}` : out);
+        }
         case "status": {
           need("id");
           const r = jobs.get(p.id!) ?? interrupted.find((j) => j.id === p.id);
@@ -240,7 +241,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           try {
             ({ applied } = await iso.apply(ws));
           } catch (e) {
-            throw new Error(`${(e as Error).message}. Worktree kept at ${ws.path} (branch ${ws.branch}); nothing was changed in your tree.`);
+            throw new Error(`${(e as Error).message}. Worktree kept at ${ws.path} (branch ${ws.branch}); nothing was changed in your tree.`, { cause: e });
           }
           forget(p.id!);
           let left = "";
@@ -266,9 +267,10 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
 
   pi.registerCommand("subagents", {
     description: "Show subagent jobs",
-    handler: async (_args, c) => {
+    handler: (_args, c) => {
       const jobs = state?.jobs.list() ?? [];
       c.ui.notify([...interrupted, ...jobs].map(line).join("\n") || "no jobs", "info");
+      return Promise.resolve();
     },
   });
 

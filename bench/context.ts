@@ -49,5 +49,5 @@ if (official) console.log("tool names off.:", official.names.join(","));
 const added = mine.tools.filter((t: any) => !bare.names.includes(t.function.name));
 console.log("\nadded tool JSON:", JSON.stringify(added));
 console.log("\nJSON " + JSON.stringify({ bare: { t: bare.toolBytes, s: bare.sysBytes }, mine: { t: mine.toolBytes, s: mine.sysBytes }, official: official && { t: official.toolBytes, s: official.sysBytes } }));
-fake.server.stop(true);
+void fake.server.stop(true);
 process.exit(0);

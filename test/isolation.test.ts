@@ -284,7 +284,7 @@ test("inspect counts omitted Unicode characters without retaining the full diff"
   const prefix = result.diff.replace(marker, "");
   expect(prefix.length).toBeLessThanOrEqual(100_000);
   expect(full.startsWith(prefix)).toBe(true);
-  expect(Number(result.diff.match(marker)?.[1])).toBe(full.length - prefix.length);
+  expect(Number((marker.exec(result.diff))?.[1])).toBe(full.length - prefix.length);
   expect(prefix).not.toContain("�");
   // Inspection truncation must not truncate the patch subsequently applied.
   await apply(ws);

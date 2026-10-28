@@ -89,7 +89,7 @@ class Parent {
   async stop() {
     this.conn.closeInput();
     await Promise.race([this.conn.exited, Bun.sleep(8000)]);
-    if (this.child.pid) try { process.kill(this.child.pid, "SIGKILL"); } catch {}
+    if (this.child.pid) try { process.kill(this.child.pid, "SIGKILL"); } catch { /* already gone */ }
   }
 }
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -148,7 +148,7 @@ describe("e2e: real parent pi + subagent extension", () => {
       childDelay = { A: 6000, B: 300 };
       parentScript = async (b) => {
         if (isWake(b)) return textReply("wake handled");
-        if (b.messages.some((m: any) => m.role === "tool" && /result-B/.test(String(m.content)))) return textReply("turn3 done");
+        if (b.messages.some((m: any) => m.role === "tool" && String(m.content).includes('result-B'))) return textReply("turn3 done");
         if (hasToolResult(b)) {
           await until(() => childDone.has("B"));
           await Bun.sleep(1500);
@@ -243,7 +243,7 @@ describe("e2e: real parent pi + subagent extension", () => {
     parentScript = (b) => {
       const results = toolTexts(b);
       if (results.length === 0) return toolCallsReply([{ name: "subagent", args: { action: "start", agent: "worker", task: "make note", isolate: true, wait: true } }]);
-      id = /\[(\S+) worker\]/.exec(results[0]!)?.[1] ?? "";
+      id = /\[(\S+) worker\]/.exec(results[0])?.[1] ?? "";
       if (results.length === 1) return toolCallsReply([{ name: "subagent", args: { action: "diff", id } }]);
       if (results.length === 2) return toolCallsReply([{ name: "subagent", args: { action: "apply", id } }]);
       return textReply("done");
@@ -254,7 +254,7 @@ describe("e2e: real parent pi + subagent extension", () => {
 
     expect(seenInWorktree.length).toBe(1);
     expect(parentBeforeApply).toBe(false);
-    const results = toolTexts(parentReqs().at(-1)!);
+    const results = toolTexts(parentReqs().at(-1));
     expect(results[1]).toContain("note.txt");
     expect(results[2]).toContain("applied 1 file");
     expect(readFileSync(join(repo, "note.txt"), "utf8")).toBe("hello\n");

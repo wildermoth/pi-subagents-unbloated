@@ -50,7 +50,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  server?.stop(true);
+  void server?.stop(true);
   for (const [k, v] of [["PI_CODING_AGENT_DIR", savedEnv.dir], ["PI_TELEMETRY", savedEnv.tel]] as const) {
     if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
@@ -69,7 +69,7 @@ function rawPi(extraArgs: string[] = [], dropArgs: string[] = []) {
   const args = buildArgs(spec()).filter((a) => !dropArgs.includes(a));
   const child = spawn(cmd.command, [...cmd.args, ...args, ...extraArgs], { cwd: work, shell: false, stdio: ["pipe", "pipe", "pipe"] });
   const events: any[] = [];
-  const waiters: Array<() => void> = [];
+  const waiters: (() => void)[] = [];
   const conn = new RpcConnection(child, { onEvent: (e) => { events.push(e); waiters.splice(0).forEach((w) => w()); }, onProtocolError: () => {} });
   const waitFor = async (type: string, ms = 30_000) => {
     const t0 = Date.now();

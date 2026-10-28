@@ -383,9 +383,9 @@ describe("jobs", () => {
         const k = rnd();
         if (k < 0.3) ops.push(jobs.cancel(r.id));
         else if (f.children[idx]) {
-          if (k < 0.65) f.children[idx]!.finish(ok());
-          else if (k < 0.8) f.children[idx]!.fail(new Error("e"));
-          else f.children[idx]!.finish(cancelled());
+          if (k < 0.65) f.children[idx].finish(ok());
+          else if (k < 0.8) f.children[idx].fail(new Error("e"));
+          else f.children[idx].finish(cancelled());
         }
         if (rnd() < 0.5) await tick();
       }

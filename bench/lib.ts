@@ -59,7 +59,7 @@ export function fakeProvider(mode: "text" | "hang" = "text") {
         { headers: { "content-type": "text/event-stream" } });
     },
   });
-  return { server, bodies, port: server.port as number };
+  return { server, bodies, port: server.port! };
 }
 
 export const BASE_FLAGS = ["--mode", "rpc", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-mcp",
@@ -68,7 +68,7 @@ export const BASE_FLAGS = ["--mode", "rpc", "--no-skills", "--no-prompt-template
 /** Spawn pi with RpcConnection and wait for the get_state response; returns ms from spawn and the live handles. */
 export async function spawnToState(args: string[], env: NodeJS.ProcessEnv, cwd = tmpdir()) {
   const t0 = performance.now();
-  const child = spawn(PI, args, { cwd, env, shell: false, stdio: ["pipe", "pipe", "pipe"] }) as ChildProcessWithoutNullStreams;
+  const child = spawn(PI, args, { cwd, env, shell: false, stdio: ["pipe", "pipe", "pipe"] });
   const conn = new RpcConnection(child, { onEvent: () => {}, onProtocolError: () => {} });
   const r = await conn.send({ type: "get_state" }, 30_000);
   const ms = performance.now() - t0;

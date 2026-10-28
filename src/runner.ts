@@ -30,7 +30,7 @@ export interface ResolveOptions {
 }
 
 const PI_PACKAGE = "@earendil-works/pi-coding-agent";
-const isPiEntry = (p: string) => /pi-coding-agent/.test(p) || /^(pi|cli)(\.[cm]?js)?$/.test(basename(p));
+const isPiEntry = (p: string) => p.includes("pi-coding-agent") || /^(pi|cli)(\.[cm]?js)?$/.test(basename(p));
 
 function defaultResolvePackage(): string | undefined {
   try {
@@ -60,9 +60,9 @@ function packageBin(o: Required<ResolveOptions>, P: typeof posix): string | unde
     const text = o.exists(P.join(dir, "package.json")) ? o.read(P.join(dir, "package.json")) : undefined;
     if (text) {
       try {
-        const pkg = JSON.parse(text);
+        const pkg = JSON.parse(text) as { name?: unknown; bin?: unknown };
         if (pkg.name === PI_PACKAGE) {
-          const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.pi;
+          const bin = typeof pkg.bin === "string" ? pkg.bin : (pkg.bin as { pi?: unknown } | null | undefined)?.pi;
           const target = typeof bin === "string" ? P.resolve(dir, bin) : undefined;
           return target && o.exists(target) ? target : undefined;
         }
@@ -200,11 +200,13 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
       const done = new Promise<RunResult>((r) => (resolveDone = r));
       let outcome: RunResult | undefined;
       let wantAbort = false;
+      // eslint-disable-next-line prefer-const -- assigned after the closures that read it are defined
       let conn: RpcConnection | undefined;
       let proc: ChildProcess | undefined;
       let acked = false;
       let settled = false;
       let lastAssistant: JsonRecord | undefined;
+      // eslint-disable-next-line prefer-const -- assigned after the closures that read it are defined
       let runTimer: ReturnType<typeof setTimeout> | undefined;
 
       const waitExit = async (ms: number): Promise<boolean> => {
@@ -262,7 +264,7 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
         if (outcome || !acked || !settled) return;
         const stop = lastAssistant?.stopReason;
         if (!lastAssistant) return fail("protocol", "agent_settled without an assistant message");
-        if (stop === "error") return fail("provider", String(lastAssistant.errorMessage ?? "provider error"));
+        if (stop === "error") return fail("provider", typeof lastAssistant.errorMessage === "string" ? lastAssistant.errorMessage : "provider error");
         if (stop === "aborted") return fail("provider", "run aborted unexpectedly");
         if (stop === "length") return fail("provider", "model hit its output length limit; the result is partial");
         if (stop !== "stop") return fail("protocol", `unexpected stopReason: ${String(stop)}`);
@@ -330,7 +332,7 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
         });
       } catch (e) {
         fail("launch", `cannot spawn Pi: ${(e as Error).message}`);
-        return { done, steer: async () => { throw new Error("run is finished"); }, cancel: async () => { await done; } };
+        return { done, steer: () => Promise.reject(new Error("run is finished")), cancel: async () => { await done; } };
       }
 
       live.add(proc);
