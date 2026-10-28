@@ -9,7 +9,7 @@ const ok = (text: string): RunResult => ({ status: "completed", text, truncated:
 
 interface Ctl { spec: RunSpec; finish(r: RunResult): void; steered: string[]; cancelled: number }
 
-function harness(branch: unknown[] = []) {
+function harness(branch: unknown[] = [], failSend = { on: false }) {
   const handlers: Record<string, (e: any, c: any) => any> = {};
   const sent: { msg: any; opts: any }[] = [];
   const entries: { type: string; data: any }[] = [];
@@ -35,7 +35,10 @@ function harness(branch: unknown[] = []) {
     registerTool: (t: any) => (tool = t),
     registerCommand: () => {},
     on: (n: string, h: any) => (handlers[n] = h),
-    sendMessage: (msg: any, opts: any) => sent.push({ msg, opts }),
+    sendMessage: (msg: any, opts: any) => {
+      if (failSend.on) throw new Error("send failed");
+      sent.push({ msg, opts });
+    },
     appendEntry: (type: string, data: any) => entries.push({ type, data }),
   };
   register(pi as any, runner);
@@ -205,4 +208,65 @@ test("shutdown cancels running jobs", async () => {
   await run(h, cwd, { action: "start", agent: "scout", task: "a" });
   await h.handlers.session_shutdown!({ reason: "quit" }, h.ctx(cwd));
   expect(h.ctls[0]!.cancelled).toBe(1);
+});
+
+test("cancel consumes its record so no later wakeup repeats it", async () => {
+  const cwd = await project();
+  const h = harness();
+  h.handlers.session_start!({}, h.ctx(cwd));
+  const id = txt(await run(h, cwd, { action: "start", agent: "scout", task: "a" })).split(" ")[1]!;
+  h.setIdle(false);
+  await run(h, cwd, { action: "cancel", id });
+  h.setIdle(true);
+  h.handlers.agent_settled!({}, h.ctx(cwd));
+  expect(h.sent.length).toBe(0);
+});
+
+test("after a user abort pending results are delivered without restarting the agent", async () => {
+  const cwd = await project();
+  const h = harness();
+  h.handlers.session_start!({}, h.ctx(cwd));
+  await run(h, cwd, { action: "start", agent: "scout", task: "a" });
+  h.setIdle(false);
+  h.ctls[0]!.finish(ok("A done"));
+  await tick();
+  h.setIdle(true);
+  h.handlers.agent_settled!({ aborted: true }, h.ctx(cwd));
+  expect(h.sent.length).toBe(1);
+  expect(h.sent[0]!.opts.triggerTurn).toBe(false);
+});
+
+test("a failed send puts results back and the next flush delivers them", async () => {
+  const cwd = await project();
+  const fail = { on: false };
+  const h = harness([], fail);
+  h.handlers.session_start!({}, h.ctx(cwd));
+  await run(h, cwd, { action: "start", agent: "scout", task: "a" });
+  h.setIdle(false);
+  h.ctls[0]!.finish(ok("A done"));
+  await tick();
+  fail.on = true;
+  h.setIdle(true);
+  expect(() => h.handlers.agent_settled!({}, h.ctx(cwd))).toThrow();
+  fail.on = false;
+  h.handlers.agent_settled!({}, h.ctx(cwd));
+  expect(h.sent.length).toBe(1);
+  expect(h.sent[0]!.msg.content).toContain("A done");
+});
+
+test("no second wake while one is in flight, cleared when the agent starts", async () => {
+  const cwd = await project();
+  const h = harness();
+  h.handlers.session_start!({}, h.ctx(cwd));
+  await run(h, cwd, { action: "start", agent: "scout", task: "a" });
+  await run(h, cwd, { action: "start", agent: "scout", task: "b" });
+  h.ctls[0]!.finish(ok("A done")); // idle: wakes now
+  await tick();
+  h.ctls[1]!.finish(ok("B done")); // still idle (wake deferred): must not wake again
+  await tick();
+  expect(h.sent.length).toBe(1);
+  h.handlers.agent_start!({}, h.ctx(cwd));
+  h.handlers.agent_settled!({}, h.ctx(cwd));
+  expect(h.sent.length).toBe(2);
+  expect(h.sent[1]!.msg.content).toContain("B done");
 });

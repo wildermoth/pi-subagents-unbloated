@@ -42,18 +42,30 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   let pending: ReturnType<typeof build> | undefined; // parallel first calls must share one state
   let interrupted: JobRecord[] = [];
 
-  /** Wake the orchestrator with everything finished and unread, once. */
-  function flush() {
+  let waking = false; // a wake is in flight; sendMessage defers inside agent_settled, so isIdle() stays true meanwhile
+
+  /** Deliver everything finished and unread in one message. wake=false lands it in context without starting a turn. */
+  function flush(wake: boolean) {
     if (!state || state.inbox.size === 0) return;
-    const records = state.inbox.drain();
-    pi.sendMessage({ customType: "subagent-results", content: state.inbox.format(records), display: true }, { triggerTurn: true });
-  }
-  const flushIfIdle = () => {
+    const { inbox } = state;
+    const records = inbox.drain();
     try {
-      if (ctx?.isIdle()) flush();
+      pi.sendMessage({ customType: "subagent-results", content: inbox.format(records), display: true }, { triggerTurn: wake });
+      waking = wake;
+    } catch (e) {
+      inbox.requeue(records); // never lose a result to a failed send
+      throw e;
+    }
+  }
+  const flushIfIdle = (wake = true) => {
+    let idle = false;
+    try {
+      idle = !!ctx?.isIdle();
     } catch {
       ctx = undefined; // stale after reload; session_start recaptures
+      return;
     }
+    if (idle && !waking) flush(wake);
   };
 
   function getState() {
@@ -124,8 +136,8 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           } finally {
             signal?.removeEventListener("abort", onAbort);
           }
-          const done = inbox.take(rec.id);
-          const out = done ? inbox.format([done]) : line(rec);
+          inbox.take(rec.id); // consumed here, so no wakeup repeats it
+          const out = inbox.format([rec]);
           if (rec.state === "failed") throw new Error(out);
           return text(out);
         }
@@ -145,6 +157,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
         case "cancel": {
           need("id");
           const r = await jobs.cancel(p.id!);
+          inbox.take(r.id); // the caller is told here, a later wakeup would repeat it
           return text(`${r.id} ${r.state}`);
         }
         case "inbox":
@@ -176,15 +189,18 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
         { triggerTurn: false },
       );
   });
-  pi.on("agent_settled", (_e, c) => {
+  pi.on("agent_start", () => {
+    waking = false;
+  });
+  pi.on("agent_settled", (e, c) => {
     ctx = c;
-    flushIfIdle();
+    waking = false;
+    flushIfIdle(!e.aborted); // after a user abort, deliver passively instead of restarting the agent
   });
   pi.on("session_shutdown", async () => {
     ctx = undefined;
     const s = await pending?.catch(() => undefined);
-    pending = undefined;
     await s?.jobs.shutdown();
-    state = undefined;
+    pending = state = undefined;
   });
 }

@@ -97,3 +97,15 @@ describe("inbox format", () => {
     expect(ib.format([rec("A")])).not.toContain("truncated");
   });
 });
+
+test("requeue restores undelivered records ahead of newer ones", () => {
+  const ib = createInbox();
+  const rec = (id: string) => ({ id, agent: "a", task: "t", state: "completed", createdAt: 0, delivered: false }) as any;
+  ib.publish(rec("A"));
+  const drained = ib.drain();
+  ib.publish(rec("B"));
+  ib.requeue(drained);
+  const again = ib.drain();
+  expect(again.map((r) => r.id)).toEqual(["A", "B"]);
+  expect(ib.drain()).toEqual([]);
+});

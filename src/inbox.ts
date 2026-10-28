@@ -7,6 +7,8 @@ export interface Inbox {
   drain(): JobRecord[];
   /** Mid-turn read of one pending record; marks it delivered. */
   take(id: string): JobRecord | undefined;
+  /** Undo a drain whose delivery failed; records go back first, undelivered. */
+  requeue(records: JobRecord[]): void;
   readonly size: number;
   format(records: JobRecord[]): string;
 }
@@ -64,6 +66,14 @@ export function createInbox(opts: { onPublish?: () => void; maxTextBytes?: numbe
       if (!r) return undefined;
       pending.delete(id);
       return deliver(r);
+    },
+    requeue(records) {
+      const rest = [...pending.values()];
+      pending.clear();
+      for (const r of [...records, ...rest]) {
+        r.delivered = false;
+        pending.set(r.id, r);
+      }
     },
     get size() {
       return pending.size;
