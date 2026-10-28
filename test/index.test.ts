@@ -77,7 +77,7 @@ test("registers one tool with a short description", () => {
 test("start with wait returns the result and consumes it", async () => {
   const cwd = await project();
   const h = harness();
-  h.handlers.session_start({}, h.ctx(cwd));
+  h.handlers.session_start!({}, h.ctx(cwd));
   h.setIdle(false); // a waiting tool call means the orchestrator is mid-turn
   const p = run(h, cwd, { action: "start", agent: "scout", task: "look", wait: true });
   await started(h);
@@ -96,7 +96,7 @@ test("background start returns an id immediately", async () => {
 test("idle completions wake once and the wakeup drains everything finished", async () => {
   const cwd = await project();
   const h = harness();
-  h.handlers.session_start({}, h.ctx(cwd));
+  h.handlers.session_start!({}, h.ctx(cwd));
   await run(h, cwd, { action: "start", agent: "scout", task: "a" });
   await run(h, cwd, { action: "start", agent: "scout", task: "b" });
   h.setIdle(false); // both finish while the orchestrator is mid-turn
@@ -105,33 +105,33 @@ test("idle completions wake once and the wakeup drains everything finished", asy
   await tick();
   expect(h.sent.length).toBe(0);
   h.setIdle(true);
-  h.handlers.agent_settled({}, h.ctx(cwd));
+  h.handlers.agent_settled!({}, h.ctx(cwd));
   expect(h.sent.length).toBe(1);
   expect(h.sent[0]!.msg.content).toContain("A done");
   expect(h.sent[0]!.msg.content).toContain("B done");
   expect(h.sent[0]!.opts.triggerTurn).toBe(true);
-  h.handlers.agent_settled({}, h.ctx(cwd)); // nothing left, no repeat wakeup
+  h.handlers.agent_settled!({}, h.ctx(cwd)); // nothing left, no repeat wakeup
   expect(h.sent.length).toBe(1);
 });
 
 test("a result read mid-turn never wakes the orchestrator afterwards", async () => {
   const cwd = await project();
   const h = harness();
-  h.handlers.session_start({}, h.ctx(cwd));
+  h.handlers.session_start!({}, h.ctx(cwd));
   const a = txt(await run(h, cwd, { action: "start", agent: "scout", task: "a" })).split(" ")[1]!;
   const b = txt(await run(h, cwd, { action: "start", agent: "scout", task: "b" })).split(" ")[1]!;
   h.setIdle(false);
   h.ctls[0]!.finish(ok("A done"));
   await tick();
   h.setIdle(true);
-  h.handlers.agent_settled({}, h.ctx(cwd)); // wakeup for A
+  h.handlers.agent_settled!({}, h.ctx(cwd)); // wakeup for A
   expect(h.sent.length).toBe(1);
   h.setIdle(false); // new turn: B finishes, orchestrator reads it
   h.ctls[1]!.finish(ok("B done"));
   await tick();
   expect(txt(await run(h, cwd, { action: "status", id: b }))).toContain("B done");
   h.setIdle(true);
-  h.handlers.agent_settled({}, h.ctx(cwd));
+  h.handlers.agent_settled!({}, h.ctx(cwd));
   expect(h.sent.length).toBe(1);
   expect(txt(await run(h, cwd, { action: "inbox" }))).toBe("no finished jobs pending");
   expect(a).not.toBe(b);
@@ -140,14 +140,14 @@ test("a result read mid-turn never wakes the orchestrator afterwards", async () 
 test("inbox action drains pending completions", async () => {
   const cwd = await project();
   const h = harness();
-  h.handlers.session_start({}, h.ctx(cwd));
+  h.handlers.session_start!({}, h.ctx(cwd));
   await run(h, cwd, { action: "start", agent: "scout", task: "a" });
   h.setIdle(false);
   h.ctls[0]!.finish(ok("A done"));
   await tick();
   expect(txt(await run(h, cwd, { action: "inbox" }))).toContain("A done");
   h.setIdle(true);
-  h.handlers.agent_settled({}, h.ctx(cwd));
+  h.handlers.agent_settled!({}, h.ctx(cwd));
   expect(h.sent.length).toBe(0);
 });
 
@@ -193,7 +193,7 @@ test("abort signal cancels a waited job", async () => {
 test("restart reports running jobs as interrupted once, without waking", () => {
   const rec = { id: "j1", agent: "scout", task: "t", state: "running", createdAt: 1, delivered: false };
   const h = harness([{ type: "custom", customType: "subagent-job", data: rec }]);
-  h.handlers.session_start({}, h.ctx("/tmp"));
+  h.handlers.session_start!({}, h.ctx("/tmp"));
   expect(h.sent[0]!.msg.content).toContain("j1");
   expect(h.sent[0]!.opts.triggerTurn).toBe(false);
   expect(h.entries[0]!.data.state).toBe("interrupted");
@@ -203,6 +203,6 @@ test("shutdown cancels running jobs", async () => {
   const cwd = await project();
   const h = harness();
   await run(h, cwd, { action: "start", agent: "scout", task: "a" });
-  await h.handlers.session_shutdown({ reason: "quit" }, h.ctx(cwd));
+  await h.handlers.session_shutdown!({ reason: "quit" }, h.ctx(cwd));
   expect(h.ctls[0]!.cancelled).toBe(1);
 });
