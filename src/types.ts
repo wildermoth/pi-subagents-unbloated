@@ -32,8 +32,22 @@ export interface RunSpec {
   launchTimeoutMs: number;
   /** Run in-process through Pi's SDK instead of as a child Pi process. Chooses the backend and the concurrency lane. */
   inprocess?: boolean;
-  /** Display only: called with the text of each completed assistant message. Must not throw into the run. */
-  onActivity?: (text: string) => void;
+  /** Display only: called whenever progress changes. Failures in it never reach the run. */
+  onProgress?: (p: Progress) => void;
+}
+
+/** A running agent at a glance, for the status widget. */
+export interface Progress {
+  /** Assistant messages finished so far. */
+  turns: number;
+  /** Tool calls started so far. */
+  tools: number;
+  /** Context size after the latest assistant message. */
+  tokens: number;
+  /** Names of tools running right now. */
+  active: string[];
+  /** Text of the latest assistant message. */
+  text: string;
 }
 
 export type RunStatus = "completed" | "failed" | "cancelled";

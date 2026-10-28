@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { createSdkRunner, splitModel } from "../src/sdk-runner.ts";
+import { splitModel } from "../src/agents.ts";
+import { createSdkRunner } from "../src/sdk-runner.ts";
+import type { Progress } from "../src/types.ts";
 import type { RunSpec } from "../src/types.ts";
 
 const spec = (o: Partial<RunSpec> = {}): RunSpec => ({
@@ -35,7 +37,10 @@ class FakeSession {
   }
   say(m: object) {
     this.messages.push(m);
-    for (const l of this.listeners) l({ type: "message_end", message: m });
+    this.emit({ type: "message_end", message: m });
+  }
+  emit(e: object) {
+    for (const l of this.listeners) l(e);
   }
   async prompt() {
     await this.script(this);
@@ -90,15 +95,18 @@ describe("splitModel", () => {
 });
 
 describe("sdk runner", () => {
-  test("completes with the last assistant text, reports activity, and releases the session", async () => {
+  test("completes with the last assistant text, reports progress, and releases the session", async () => {
     const f = fakeSdk((s) => {
-      s.say(assistant("working"));
-      s.say(assistant("the answer"));
+      s.say(assistant("working", "stop", { usage: { totalTokens: 500 } }));
+      s.emit({ type: "tool_execution_start", toolCallId: "t1", toolName: "read" });
+      s.emit({ type: "tool_execution_end", toolCallId: "t1", toolName: "read" });
+      s.say(assistant("the answer", "stop", { usage: { totalTokens: 900 } }));
     });
-    const seen: string[] = [];
-    const r = await createSdkRunner({ load: f.load }).start(spec({ onActivity: (t) => seen.push(t) })).done;
+    const seen: Progress[] = [];
+    const r = await createSdkRunner({ load: f.load }).start(spec({ onProgress: (p) => seen.push(p) })).done;
     expect(r).toEqual({ status: "completed", text: "the answer", truncated: false });
-    expect(seen).toEqual(["working", "the answer"]);
+    expect(seen.at(-1)).toEqual({ turns: 2, tools: 1, tokens: 900, active: [], text: "the answer" });
+    expect(seen.some((p) => p.active.includes("read"))).toBe(true);
     expect(f.calls.sessions[0]!.disposed).toBe(1);
   });
 
@@ -196,11 +204,11 @@ describe("sdk runner", () => {
     await expect(child.steer("late")).rejects.toThrow("finished");
   });
 
-  test("a throwing activity observer cannot fail the run", async () => {
+  test("a throwing progress observer cannot fail the run", async () => {
     const f = fakeSdk();
     const r = await createSdkRunner({ load: f.load }).start(
       spec({
-        onActivity: () => {
+        onProgress: () => {
           throw new Error("display bug");
         },
       }),

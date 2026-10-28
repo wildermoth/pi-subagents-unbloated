@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolvePiCommand } from "../src/pi-command.ts";
 import { buildArgs, createRunner } from "../src/runner.ts";
-import type { Child, RunSpec } from "../src/types.ts";
+import type { Child, Progress, RunSpec } from "../src/types.ts";
 
 const spec = (o: Partial<RunSpec> = {}): RunSpec => ({
   cwd: process.cwd(),
@@ -48,16 +48,18 @@ afterEach(async () => {
 });
 
 describe("results", () => {
-  test("each assistant message is reported to onActivity, and a throwing observer cannot fail the run", async () => {
-    const seen: string[] = [];
-    await run("normal", { onActivity: (t) => seen.push(t) }).child.done;
-    expect(seen.at(-1)).toBe("hello");
-    const r = await run("normal", {
-      onActivity: () => {
+  test("progress reports tool calls, turns and context size, and a throwing observer cannot fail the run", async () => {
+    const seen: Progress[] = [];
+    const r = await run("tools", { onProgress: (p) => seen.push(p) }).child.done;
+    expect(r.text).toBe("tools done");
+    expect(seen.map((p) => p.active)).toEqual([["read"], ["read", "grep"], ["grep"], [], []]);
+    expect(seen.at(-1)).toEqual({ turns: 1, tools: 2, tokens: 1234, active: [], text: "tools done" });
+    const bad = await run("normal", {
+      onProgress: () => {
         throw new Error("observer bug");
       },
     }).child.done;
-    expect(r.status).toBe("completed");
+    expect(bad.status).toBe("completed");
   });
   test("normal answer", async () => {
     const r = await run("normal").child.done;

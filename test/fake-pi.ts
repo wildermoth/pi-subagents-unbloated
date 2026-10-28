@@ -15,6 +15,7 @@ const assistant = (text: string, extra: object = {}) => ({
   role: "assistant",
   content: [{ type: "text", text }],
   stopReason: "stop",
+  usage: { totalTokens: 1234 },
   timestamp: 0,
   ...extra,
 });
@@ -65,6 +66,13 @@ async function onPrompt(id: string) {
       out({ type: "agent_start" });
       out({ type: "message_end", message: assistant("so far so good") });
       return;
+    case "tools": // two overlapping tool calls, then an answer
+      out({ type: "agent_start" });
+      out({ type: "tool_execution_start", toolCallId: "t1", toolName: "read", args: {} });
+      out({ type: "tool_execution_start", toolCallId: "t2", toolName: "grep", args: {} });
+      out({ type: "tool_execution_end", toolCallId: "t1", toolName: "read", result: {}, isError: false });
+      out({ type: "tool_execution_end", toolCallId: "t2", toolName: "grep", result: {}, isError: false });
+      return finish("tools done");
     case "length":
       return finish("cut off mid sen", { stopReason: "length" });
     case "never-settles":

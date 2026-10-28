@@ -1,6 +1,7 @@
 /** Runs one Pi child over `--mode rpc` per RunSpec. See types.ts for the contract. */
 import { spawn, type ChildProcess } from "node:child_process";
-import { asRecord, assistantText, partialOf, settledOutcome } from "./outcome.ts";
+import { asRecord, partialOf, settledOutcome } from "./outcome.ts";
+import { createTracker } from "./progress.ts";
 import { resolvePiCommand } from "./pi-command.ts";
 import { RpcConnection, RpcError, type ExitInfo, type JsonRecord, type RpcResponse } from "./protocol.ts";
 import type { Child, FailureKind, RunResult, RunSpec, Runner } from "./types.ts";
@@ -132,21 +133,14 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
         decide(settledOutcome(lastAssistant, maxResultBytes));
       };
 
-      /** Tell the display observer; it must never fail the run. */
-      const announce = (msg: JsonRecord): void => {
-        try {
-          spec.onActivity?.(assistantText(msg));
-        } catch {
-          // display only
-        }
-      };
+      const track = createTracker(spec.onProgress);
 
       const onEvent = (ev: JsonRecord): void => {
+        track(ev);
         switch (ev.type) {
           case "message_end":
             if (asRecord(ev.message)?.role === "assistant") {
               lastAssistant = ev.message as JsonRecord;
-              announce(lastAssistant);
             }
             break;
           case "agent_end":

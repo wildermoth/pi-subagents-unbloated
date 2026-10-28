@@ -1,6 +1,8 @@
 /** Runs a RunSpec as an in-process Pi SDK session. Same contract as runner.ts, cheaper, but no process isolation. */
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import { asRecord, assistantText, partialOf, settledOutcome } from "./outcome.ts";
+import { splitModel } from "./agents.ts";
+import { asRecord, partialOf, settledOutcome } from "./outcome.ts";
+import { createTracker } from "./progress.ts";
 import type { JsonRecord } from "./protocol.ts";
 import type { Child, FailureKind, RunResult, RunSpec, Runner } from "./types.ts";
 
@@ -11,12 +13,6 @@ export interface SdkRunnerOptions {
   load?: () => Promise<Sdk>;
   /** Max UTF-8 bytes of result text, marker included. Default 8192. */
   maxResultBytes?: number;
-}
-
-/** "provider/model-id" where the id may itself contain slashes. */
-export function splitModel(ref: string): { provider: string; id: string } | undefined {
-  const i = ref.indexOf("/");
-  return i > 0 && i < ref.length - 1 ? { provider: ref.slice(0, i), id: ref.slice(i + 1) } : undefined;
 }
 
 /** Builds the session a spec asks for. Mirrors buildArgs: everything off except Pi's own tools and project context files. */
@@ -100,16 +96,11 @@ export function createSdkRunner(opts: SdkRunnerOptions = {}): Runner {
       const fail = (kind: FailureKind, message: string): void =>
         decide({ status: "failed", ...partialOf(lastAssistant, maxResultBytes), failure: { kind, message } });
 
+      const track = createTracker(spec.onProgress);
       const onEvent = (ev: { type: string; message?: unknown }): void => {
-        if (ev.type !== "message_end") return;
-        const m = asRecord(ev.message);
-        if (m?.role !== "assistant") return;
-        lastAssistant = m;
-        try {
-          spec.onActivity?.(assistantText(m));
-        } catch {
-          // display only
-        }
+        track(ev);
+        const m = ev.type === "message_end" ? asRecord(ev.message) : undefined;
+        if (m?.role === "assistant") lastAssistant = m;
       };
 
       void (async () => {
