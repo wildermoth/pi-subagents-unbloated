@@ -96,3 +96,15 @@ This extension adds 2.5 times fewer bytes than the official example. Neither ext
 
 - Bare Pi spawn to get_state: p50 225.4 / p95 254.4 ms (startup.ts); 236.3 / 345.7 ms in the delegation run (different isolation flags, `--tools read,grep,find,ls`, separate session of runs, so the two baselines carry run-to-run noise of about 10 ms at p50).
 - Bare Pi first-request context: 5904 B body.
+
+## Intent-preserving hardening check (2026-10-29)
+
+After the hardening changes, source is 69,040 bytes across 8 files (1,761 lines), still below the 100 KB target. The original timing tables above are historical measurements, not a new comparison.
+
+- `PI_INTEGRATION=1 bun test`: 172 passed, including real-Pi end-to-end tests with a local fake provider.
+- Final baseline after the concurrent-worktree creation fix: 155 passed, 17 integration tests skipped. The live-Pi isolate/diff/apply test also passed again.
+- `bun run typecheck` and `git diff --check`: passed.
+- `bun bench/context.ts`: unchanged 719-byte tool entry, 720-byte tools-only delta (about 180 tokens, bytes/4 estimate), zero added system prompt bytes.
+- `bun bench/startup.ts 5`: factory p50 0.19 ms; zero factory timers, zero handle delta, zero idle child processes. Paired startup delta p50 23.0 ms, p95 62.6 ms. This small sample ran alongside integration tests and is too noisy to claim a startup improvement or regression.
+
+Efficiency changes remove repeated staging/snapshot resolution, avoid buffering complete inspection diffs, and release terminal request/process state. No measured throughput or memory improvement is claimed.

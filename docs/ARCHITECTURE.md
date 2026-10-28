@@ -16,7 +16,7 @@
 | `src/agents.ts` | On-demand agent discovery, frontmatter parsing via Pi's parser, trust and precedence rules. |
 | `src/runner.ts` | Spawns a child Pi, sends the prompt, observes completion, steers, cancels, terminates. Small `Runner` interface so tests inject a fake. Resolves the Pi command (`PI_BIN`, then this process's own Pi entry, then `pi` on PATH). |
 | `src/protocol.ts` | RPC adapter: LF-framed JSONL, command-id correlation, events, bounded buffers. |
-| `src/jobs.ts` | Job table, FIFO queue, state machine, writer lock per working directory, exactly-once slot release, restore of interrupted jobs. |
+| `src/jobs.ts` | Job table, FIFO queue, state machine, writer lock per canonical repository (canonical cwd outside Git), exactly-once slot release, restore of interrupted jobs. |
 | `src/inbox.ts` | Per-session inbox of finished jobs: publish once, drain, take one, bounded formatting. |
 | `src/types.ts` | Cross-module types only. |
 
@@ -24,7 +24,7 @@ Tests live in `test/` (unit, fake-Pi end to end, and gated real-Pi integration);
 
 ## Child process
 
-Each child runs `pi --mode rpc` with extensions, skills, prompt templates, themes, and MCP disabled, `--offline`, `--no-session`, an explicit working directory and tool allowlist, the agent body appended to the system prompt, and `--approve` or `--no-approve` matching the parent's project trust. Parent history is never passed. The child is spawned without a shell and in its own process group on POSIX so the whole tree can be signalled.
+Each child runs `pi --mode rpc` with extensions, skills, prompt templates, themes, and MCP disabled, `--offline`, `--no-session`, an explicit working directory and tool allowlist, the agent body appended to the system prompt, and `--approve` or `--no-approve` matching the parent's project trust. Parent history is never passed. The child is spawned without a shell and in its own process group on POSIX so the whole group can be signalled, including descendants left after its leader exits. Windows termination targets the direct child.
 
 Job state is in memory. Only compact lifecycle metadata is persisted, as Pi session entries, so a restart can report jobs as `interrupted`. There is no job database.
 

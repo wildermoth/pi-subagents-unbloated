@@ -59,7 +59,7 @@ Concurrency is a fixed limit of 4 running jobs with one FIFO queue. Results are 
 - `apply <id>` is conflict-checked: if any file the agent touched has since changed in your tree, it fails and changes nothing, and the worktree is kept. On success it applies the changes and removes the worktree.
 - `discard <id>` removes the worktree and branch. Nothing is discarded implicitly; an unreviewed worktree stays until you `apply` or `discard` it.
 - Worktrees live under `<git-common-dir>/pi-subagents`, so they do not show up in `git status`, and they survive Pi restarts. The job itself does not survive (it is reported `interrupted`), but you can still `diff`, `apply` or `discard` its worktree.
-- Isolated writers run in parallel, since they cannot collide. Shared (non-isolated) writers are serialized per working directory.
+- Isolated writers run in parallel, since they cannot collide. Shared (non-isolated) writers are serialized per canonical repository root (canonical working directory outside Git).
 
 ### How results reach the parent
 
@@ -113,16 +113,16 @@ Precedence: a project agent overrides a user agent of the same name. Within one 
 
 - Tool allowlists are not a sandbox. Children share the filesystem, network, credentials, and environment of the parent user. There is no custom sandbox in this package.
 - Background means non-blocking for the parent turn, not durable. Jobs do not survive Pi exiting. After a restart, jobs that were running are reported as `interrupted`; they are not resumed or restarted. Results that had finished but were never read are saved at shutdown and shown once, without waking the agent, at the next start.
-- Process isolation is not filesystem isolation. Read-only agents may run concurrently, but only one unisolated writer runs per working directory at a time (`bash` counts as writing); others queue. Use `isolate: true` to run writers in parallel.
+- Process isolation is not filesystem isolation. Read-only agents may run concurrently, but only one unisolated writer runs per repository at a time (`bash` counts as writing); others queue. Use `isolate: true` to run writers in parallel.
 - No automatic retries. A failed task is reported and left to the parent to decide, since retrying may repeat side effects.
 - No recursive subagents: children cannot launch children.
 - Not included by design: tmux, workflows, scheduling, memory, full-screen UI.
-- Windows: the launch path (resolving Pi and spawning without a shell) is covered by CI on Windows for unit tests only, and has not been verified end to end on a real Windows machine with a live Pi. Set `PI_BIN` to your Pi executable if auto-resolution fails.
+- Windows: the launch path (resolving Pi and spawning without a shell) is covered by CI on Windows for unit tests only, and has not been verified end to end on a real Windows machine with a live Pi. Set `PI_BIN` to your Pi executable if auto-resolution fails. Descendant process-group cleanup is POSIX-only; on Windows termination targets the direct child.
 - Requires Pi 1.4.0 or compatible RPC behavior; the child flags were verified against 1.4.0.
 
 ## Size, dependencies, performance
 
-- Source: 64,190 bytes across 8 files in `src/` (`wc -c src/*.ts`).
+- Source: 69,040 bytes across 8 files in `src/` (`wc -c src/*.ts`).
 - Runtime dependencies: 0. `peerDependencies` are `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, and `typebox`, all supplied by Pi.
 
 Measured on one machine (Linux under WSL2, Intel Core i5-14400F, Bun 1.3.13, Pi 1.4.0, local zero-delay fake model provider). Figures vary run to run; WSL2 noise is large. Full methodology and more tables are in [PERFORMANCE.md](PERFORMANCE.md).
