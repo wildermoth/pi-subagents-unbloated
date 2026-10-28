@@ -210,6 +210,33 @@ describe("jobs", () => {
     expect(d!.state).toBe("cancelled");
   });
 
+  test("child processes and in-process agents have separate limits and never block each other", async () => {
+    const f = fake();
+    const jobs = createJobs({ runner: f.runner, maxConcurrent: 2, maxInprocess: 3 });
+    const inproc = () => req({ spec: { ...spec(), inprocess: true } });
+    const rpc = [jobs.start(req()), jobs.start(req()), jobs.start(req())];
+    const sdk = [1, 2, 3, 4, 5].map(() => jobs.start(inproc()));
+    expect(rpc.map((j) => j.state)).toEqual(["running", "running", "queued"]);
+    expect(sdk.map((j) => j.state)).toEqual(["running", "running", "running", "queued", "queued"]);
+    expect(jobs.active).toBe(5);
+    f.children[2]!.finish(ok()); // the first in-process agent ends: only an in-process job takes its slot
+    await jobs.wait(sdk[0]!.id);
+    expect(sdk[3]!.state).toBe("running");
+    expect(rpc[2]!.state).toBe("queued");
+    f.children[0]!.finish(ok());
+    await jobs.wait(rpc[0]!.id);
+    expect(rpc[2]!.state).toBe("running");
+  });
+
+  test("defaults are 6 child processes and 50 in-process agents", async () => {
+    const f = fake();
+    const jobs = createJobs({ runner: f.runner, maxOutstanding: 1000 });
+    const rpc = Array.from({ length: 8 }, () => jobs.start(req()));
+    const sdk = Array.from({ length: 52 }, () => jobs.start(req({ spec: { ...spec(), inprocess: true } })));
+    expect(rpc.filter((j) => j.state === "running")).toHaveLength(6);
+    expect(sdk.filter((j) => j.state === "running")).toHaveLength(50);
+  });
+
   test("jobs never serialize on what they might write: concurrency is the only limit", async () => {
     const f = fake();
     const jobs = createJobs({ runner: f.runner, maxConcurrent: 2 });

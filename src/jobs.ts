@@ -58,7 +58,10 @@ interface Entry {
 
 export function createJobs(opts: {
   runner: Runner;
+  /** Concurrent child Pi processes. Default 6. */
   maxConcurrent?: number;
+  /** Concurrent in-process agents. Default 50. */
+  maxInprocess?: number;
   maxOutstanding?: number;
   maxHistory?: number;
   onTerminal?: (r: JobRecord) => void;
@@ -68,8 +71,8 @@ export function createJobs(opts: {
   now?: () => number;
   id?: () => string;
 }): Jobs {
-  const max = opts.maxConcurrent ?? 4;
-  const maxOutstanding = opts.maxOutstanding ?? 64;
+  const limit = { rpc: opts.maxConcurrent ?? 6, inprocess: opts.maxInprocess ?? 50 };
+  const maxOutstanding = opts.maxOutstanding ?? 128;
   const maxHistory = opts.maxHistory ?? 100;
   const now = opts.now ?? Date.now;
   let seq = 0;
@@ -79,7 +82,8 @@ export function createJobs(opts: {
   const entries = new Map<string, Entry>(); // live runtime data only
   const queue: Entry[] = [];
   const history: string[] = [];
-  let running = 0;
+  const running = { rpc: 0, inprocess: 0 };
+  const lane = (e: Entry) => (e.req.spec.inprocess ? "inprocess" : "rpc");
   let closed = false;
   let pumping = false;
 
@@ -97,7 +101,7 @@ export function createJobs(opts: {
     if (qi >= 0) queue.splice(qi, 1);
     if (e.holding) {
       e.holding = false;
-      running--;
+      running[lane(e)]--;
     }
     e.rec.state = state;
     e.rec.endedAt = now();
@@ -120,7 +124,7 @@ export function createJobs(opts: {
 
   function launch(e: Entry): void {
     e.holding = true;
-    running++;
+    running[lane(e)]++;
     e.rec.state = "starting";
     notify(opts.onChange, e.rec);
     if (isTerminal(e.rec.state)) return; // an observer may cancel before spawn
@@ -157,10 +161,11 @@ export function createJobs(opts: {
     pumping = true;
     try {
       for (;;) {
-        if (closed || running >= max) return;
-        const next = queue.shift();
-        if (!next) return;
-        launch(next);
+        if (closed) return;
+        // First queued job whose own lane has room, so a full RPC lane never blocks in-process agents.
+        const i = queue.findIndex((q) => running[lane(q)] < limit[lane(q)]);
+        if (i < 0) return;
+        launch(queue.splice(i, 1)[0]!);
       }
     } finally {
       pumping = false;
@@ -237,7 +242,7 @@ export function createJobs(opts: {
       for (const e of live) settle(e, "cancelled");
     },
     get active() {
-      return running;
+      return running.rpc + running.inprocess;
     },
   };
 }
