@@ -161,3 +161,11 @@ test('inprocess frontmatter accepts true or "true" and defaults to off', async (
     ["d", undefined],
   ]);
 });
+
+test("thinking frontmatter accepts known levels only", async () => {
+  await writeFile(join(userDir, "a.md"), md("name: a\ndescription: d\nthinking: xhigh"));
+  await writeFile(join(userDir, "b.md"), md("name: b\ndescription: d\nthinking: ludicrous"));
+  await writeFile(join(userDir, "c.md"), md("name: c\ndescription: d"));
+  const { agents } = await discoverAgents({ cwd: root, userDir, projectTrusted: false });
+  expect([...agents.values()].map((a) => a.thinking)).toEqual(["xhigh", undefined, undefined]);
+});

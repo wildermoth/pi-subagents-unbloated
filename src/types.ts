@@ -7,6 +7,8 @@ export interface AgentDef {
   tools?: string[];
   /** Pi model id, or undefined to inherit the parent's model. */
   model?: string;
+  /** Thinking level, or undefined to inherit the parent's. */
+  thinking?: string;
   /** Markdown body, appended to the child's system prompt. */
   prompt: string;
   /** Run in the parent process through Pi's SDK instead of a child Pi process. Cheaper, but no hard kill or crash isolation. */

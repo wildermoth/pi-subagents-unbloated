@@ -54,6 +54,12 @@ function toFlag(v: unknown): boolean | undefined {
   return v === true || (typeof v === "string" && v.trim().toLowerCase() === "true") ? true : undefined;
 }
 
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+function toThinking(v: unknown): string | undefined {
+  return typeof v === "string" && (THINKING_LEVELS as readonly string[]).includes(v.trim()) ? v.trim() : undefined;
+}
+
 function toModel(v: unknown): string | undefined {
   if (typeof v !== "string") return undefined;
   const m = v.trim();
@@ -93,6 +99,7 @@ async function loadDir(dir: string, source: AgentDef["source"], warnings: string
         description,
         tools: toTools(fm.tools),
         model: toModel(fm.model),
+        thinking: toThinking(fm.thinking),
         inprocess: toFlag(fm.inprocess),
         prompt: body,
         source,
