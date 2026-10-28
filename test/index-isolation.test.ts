@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { harness, ok, run, started, tick, txt } from "./helpers/harness.ts";
@@ -127,4 +127,41 @@ test("isolate outside a git repo fails clearly without starting a job", async ()
   const h = harness();
   await expect(run(h, cwd, { action: "start", agent: "worker", task: "x", isolate: true })).rejects.toThrow(/git/);
   expect(h.ctls.length).toBe(0);
+});
+
+
+test("shared writers serialize across repository subdirectories and symlink aliases", async () => {
+  const cwd = await repo();
+  const subdir = join(cwd, "subdir");
+  await mkdir(subdir);
+  const h = harness();
+  h.setIdle(false);
+  await start(h, cwd);
+  await start(h, subdir);
+  expect(h.ctls).toHaveLength(1);
+  h.ctls[0]!.finish(ok("first"));
+  await started(h, 2);
+  expect(h.ctls).toHaveLength(2);
+  if (process.platform !== "win32") {
+    const alias = join(cwd, "alias");
+    await symlink(subdir, alias);
+    await start(h, alias);
+    expect(h.ctls).toHaveLength(2);
+    h.ctls[1]!.finish(ok("second"));
+    await started(h, 3);
+    expect(h.ctls).toHaveLength(3);
+  }
+  await h.handlers.session_shutdown!({}, h.ctx(cwd));
+});
+
+test("shared writers outside Git use canonical cwd", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "psu-shared-"));
+  dirs.push(cwd);
+  await mkdir(join(cwd, ".pi", "agents"), { recursive: true });
+  await writeFile(join(cwd, ".pi", "agents", "worker.md"), "---\nname: worker\ndescription: Edit\n---\nWork.");
+  const h = harness();
+  await start(h, cwd);
+  await start(h, cwd);
+  expect(h.ctls).toHaveLength(1);
+  await h.handlers.session_shutdown!({}, h.ctx(cwd));
 });

@@ -136,20 +136,31 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           const { discoverAgents, resolveAgent } = await agentsModule();
           const { agents } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
           const def = resolveAgent(agents, p.agent!);
+          const writes = isWriter(def.tools);
+          let repoKey = c.cwd;
           let cwd = c.cwd;
+          // Resolve only for writers/isolation, never during registration or discovery.
+          if (writes || p.isolate) {
+            cwd = await realpath(c.cwd);
+            const iso = await isolationModule();
+            repoKey = await iso.repoRootOf(cwd).catch((e) => {
+              if (p.isolate) throw e;
+              return cwd; // non-Git workspaces still serialize through canonical cwd
+            });
+          }
           let ws: Workspace | undefined;
           if (p.isolate) {
             const iso = await isolationModule();
-            const root = await iso.repoRootOf(c.cwd);
+            const root = repoKey;
             ws = await iso.create({ repoRoot: root, id: crypto.randomUUID().slice(0, 12) });
-            cwd = join(ws.path, relative(root, await realpath(c.cwd))); // root is canonical, so cwd must be too (macOS /var, Windows 8.3 names)
+            cwd = join(ws.path, relative(root, cwd)); // root is canonical, so cwd must be too (macOS /var, Windows 8.3 names)
           }
           let rec: JobRecord;
           try {
             rec = jobs.start({
               agent: def.name,
-              writes: ws ? false : isWriter(def.tools), // an isolated writer cannot collide with anyone
-              repoKey: ws ? ws.path : c.cwd,
+              writes: !ws && writes, // an isolated writer cannot collide with anyone
+              repoKey: ws ? ws.path : repoKey,
               spec: {
                 cwd,
                 task: p.task!,
