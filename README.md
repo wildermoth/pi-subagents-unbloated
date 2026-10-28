@@ -64,7 +64,7 @@ In the terminal UI a widget above the editor shows running jobs and finished job
 └─ 2 queued
 ```
 
-- **Row:** spinner, agent, task, then turns (`↻`), tool calls started, tokens and elapsed time. Zero counts are left out. Finished rows show `✓` (done), `✗` (failed, with the error) or `■` (cancelled).
+- **Row:** spinner, agent, task, then turns (`↻`, counted as each turn starts), tool calls started, tokens and elapsed time. All four always show, so a quiet agent reads as zeros. Finished rows show `✓` (done), `✗` (failed, with the error) or `■` (cancelled).
 - **Tokens:** the context size after the agent's latest turn, not a running total. The percentage is that over the model's context window (dim, then yellow from 70%, red from 85%); it appears while the job runs, and only when the model is known.
 - **Activity line:** the tools running right now (`reading`, `editing 2 files`, `searching the web`), otherwise the start of its latest message, otherwise `thinking…`.
 - **Overflow:** at most 5 jobs are listed. The rest collapse into a final `+N more, M queued` row, or `M queued` alone.

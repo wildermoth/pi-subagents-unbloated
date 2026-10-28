@@ -55,10 +55,10 @@ describe("renderStatus", () => {
     ]);
   });
 
-  test("a row without progress yet shows only the time and 'thinking…'", () => {
+  test("a row without progress yet shows zeros and 'thinking…', never a missing field", () => {
     expect(renderStatus([rec("1", "running")], opts())).toEqual([
       "● Agents",
-      `└─ ${FRAMES[2]} agent-1  task 1 · 12.3s`,
+      `└─ ${FRAMES[2]} agent-1  task 1 · ↻0 · 0 tool uses · 0 token · 12.3s`,
       "       ⎿  thinking…",
     ]);
   });
@@ -83,8 +83,8 @@ describe("renderStatus", () => {
     expect(lines).toEqual([
       "○ Agents",
       "├─ ✓ agent-1  task 1 · ↻4 · 7 tool uses · 900 token · 3.1s",
-      "├─ ✗ agent-2  task 2 · 1.0s error: Pi exited",
-      "└─ ■ agent-3  task 3 · 2.0s",
+      "├─ ✗ agent-2  task 2 · ↻0 · 0 tool uses · 0 token · 1.0s error: Pi exited",
+      "└─ ■ agent-3  task 3 · ↻0 · 0 tool uses · 0 token · 2.0s",
     ]);
   });
 

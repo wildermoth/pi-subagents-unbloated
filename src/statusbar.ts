@@ -89,20 +89,18 @@ const icon = (r: JobRecord, frame: number, s: Style): string =>
         ? s.error("✗")
         : s.dim("■");
 
-/** "↻5 · 5 tool uses · 33.8k token (62%) · 12.3s", leaving out what is still zero. */
+/** "↻5 · 5 tool uses · 33.8k token (62%) · 12.3s". Always all four, so a quiet agent reads as zeros, not as a missing feature. */
 function stats(r: JobRecord, now: number, s: Style): string {
   const p = r.progress;
   const pct = p && r.contextWindow ? Math.round((p.tokens / r.contextWindow) * 100) : 0;
   const pctStyle = pct >= 85 ? s.error : pct >= 70 ? s.warn : s.dim;
   const context = isRunning(r) && pct ? s.dim(" (") + pctStyle(`${pct}%`) + s.dim(")") : "";
   return [
-    p?.turns ? s.dim(`↻${p.turns}`) : "",
-    p?.tools ? s.dim(`${p.tools} tool use${p.tools > 1 ? "s" : ""}`) : "",
-    p?.tokens ? s.dim(`${tokens(p.tokens)} token`) + context : "",
+    s.dim(`↻${p?.turns ?? 0}`),
+    s.dim(`${p?.tools ?? 0} tool use${p?.tools === 1 ? "" : "s"}`),
+    s.dim(`${tokens(p?.tokens ?? 0)} token`) + context,
     s.dim(elapsed((r.endedAt ?? now) - (r.startedAt ?? r.createdAt))),
-  ]
-    .filter(Boolean)
-    .join(s.dim(" · "));
+  ].join(s.dim(" · "));
 }
 
 /** A job's header line, and for running jobs a second line with what it is doing. */
