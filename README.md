@@ -30,22 +30,36 @@ Replace `<owner>` with the repository owner (the package is not yet published, s
 ## The `subagent` tool
 
 ```ts
-subagent({ action, agent?, task?, id?, message?, wait? })
+subagent({ action, agent?, task?, id?, message?, wait?, isolate? })
 ```
 
 | Action | Needs | What it does |
 | --- | --- | --- |
 | `agents` | none | List available agent definitions, plus discovery warnings. |
-| `start` | `agent`, `task` | Launch a child. Returns a job id immediately; with `wait: true` blocks until the job finishes and returns its result. `task` must be self-contained: the child sees nothing of the parent conversation. |
+| `start` | `agent`, `task` | Launch a child. Returns a job id immediately; with `wait: true` blocks until the job finishes and returns its result. `task` must be self-contained: the child sees nothing of the parent conversation. With `isolate: true` the child runs in its own git worktree (see below). |
 | `list` | none | One line per job (including jobs interrupted by a restart). Does not consume results. |
 | `status` | `id` | Live state of one job without loading a transcript. If the job has finished, asking for it returns its result and marks it delivered. |
 | `steer` | `id`, `message` | Send a message to a running job. Rejected once the job has ended. |
 | `cancel` | `id` | Cancel a job. Idempotent; the outcome is deterministic if it races completion. |
 | `inbox` | none | Drain everything finished and not yet delivered, on demand. |
+| `diff` | `id` | List the files an isolated job changed and show its diff (truncated at 6000 characters with a marker). Only after the job has ended. |
+| `apply` | `id` | Apply an isolated job's changes to your working tree, then remove its worktree. Only after the job has ended. |
+| `discard` | `id` | Throw away an isolated job's worktree and branch. Explicit, and only after the job has ended. |
 
 Invalid combinations (for example `start` without `task`) are rejected with a short error. A `/subagents` command shows the job list.
 
 Concurrency is a fixed limit of 4 running jobs with one FIFO queue. Results are bounded in size and truncated with an explicit marker.
+
+### Worktree isolation
+
+`start` with `isolate: true` runs the child in a fresh git worktree instead of your working tree.
+
+- The worktree is created from `HEAD` on a branch `pi-subagent/<id>`, and your uncommitted work (tracked changes and untracked files) is carried into it as a diff, so the child sees what you see. Ignored files are not carried. Submodules are unsupported (gitlinks and nested repos are skipped).
+- `diff <id>` shows only what the agent changed, relative to a snapshot taken when the worktree was created.
+- `apply <id>` is conflict-checked: if any file the agent touched has since changed in your tree, it fails and changes nothing, and the worktree is kept. On success it applies the changes and removes the worktree.
+- `discard <id>` removes the worktree and branch. Nothing is discarded implicitly; an unreviewed worktree stays until you `apply` or `discard` it.
+- Worktrees live under `<git-common-dir>/pi-subagents`, so they do not show up in `git status`, and they survive Pi restarts. The job itself does not survive (it is reported `interrupted`), but you can still `diff`, `apply` or `discard` its worktree.
+- Isolated writers run in parallel, since they cannot collide. Shared (non-isolated) writers are serialized per working directory.
 
 ### How results reach the parent
 
@@ -99,23 +113,23 @@ Precedence: a project agent overrides a user agent of the same name. Within one 
 
 - Tool allowlists are not a sandbox. Children share the filesystem, network, credentials, and environment of the parent user. There is no custom sandbox in this package.
 - Background means non-blocking for the parent turn, not durable. Jobs do not survive Pi exiting. After a restart, jobs that were running are reported as `interrupted`; they are not resumed or restarted.
-- Process isolation is not filesystem isolation. Read-only agents may run concurrently, but only one unisolated writer runs per working directory at a time (`bash` counts as writing); others queue.
+- Process isolation is not filesystem isolation. Read-only agents may run concurrently, but only one unisolated writer runs per working directory at a time (`bash` counts as writing); others queue. Use `isolate: true` to run writers in parallel.
 - No automatic retries. A failed task is reported and left to the parent to decide, since retrying may repeat side effects.
 - No recursive subagents: children cannot launch children.
-- Not included by design: tmux, git worktree isolation, workflows, scheduling, memory, full-screen UI.
+- Not included by design: tmux, workflows, scheduling, memory, full-screen UI.
 - Windows: the launch path (resolving Pi and spawning without a shell) is covered by CI on Windows for unit tests only, and has not been verified end to end on a real Windows machine with a live Pi. Set `PI_BIN` to your Pi executable if auto-resolution fails.
 - Requires Pi 1.4.0 or compatible RPC behavior; the child flags were verified against 1.4.0.
 
 ## Size, dependencies, performance
 
-- Source: 43,208 bytes across 7 files in `src/` (`wc -c src/*.ts`).
+- Source: 64,190 bytes across 8 files in `src/` (`wc -c src/*.ts`).
 - Runtime dependencies: 0. `peerDependencies` are `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, and `typebox`, all supplied by Pi.
 
 Measured on one machine (Linux under WSL2, Intel Core i5-14400F, Bun 1.3.13, Pi 1.4.0, local zero-delay fake model provider). Figures vary run to run; WSL2 noise is large. Full methodology and more tables are in [PERFORMANCE.md](PERFORMANCE.md).
 
 | Metric | Measured |
 | --- | --- |
-| Cold added context | 587 B of tool JSON, 0 B system prompt (about 147 tokens, bytes/4 estimate) vs 1810 B for Pi's official example subagent extension |
+| Cold added context | 719 B tool schema entry, 0 B system prompt (about 180 tokens, bytes/4 estimate; 720 B tools-only delta) vs 1810 B for Pi's official example subagent extension |
 | Startup overhead | Pi spawn to `get_state` with the extension: delta vs bare Pi p50 9.9 ms (an empty extension costs p50 8.8 ms, so about 1.2 ms is ours). Paired p95 16.0 ms, noise-limited |
 | Extension factory | 0.1 ms |
 | Child launch (start to ack) | p50 252.0 ms, p95 273.4 ms (direct RPC baseline: p50 236.3 ms, p95 345.7 ms) |

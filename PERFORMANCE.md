@@ -33,8 +33,8 @@ Helpers live in `bench/lib.ts`. Percentiles are nearest-rank over the samples.
 | Runtime npm deps | 0 | 0 (`dependencies` absent; only peer/dev deps) | met |
 | Idle children / timers / registration fs scans | 0 | 0 child processes, 0 timers (setTimeout/setInterval/setImmediate tracked during factory with a stub pi), 0 handle delta, 0 Pi descendants at idle with extension. fs scans: factory is synchronous and imports no fs; not instrumented beyond that | met |
 | Extra model-facing tools | 1 | 1 (`subagent`) | met |
-| Source size | < 100 KB excl. tests | 42,253 bytes (`cat src/*.ts`, about 41.3 KiB) | met |
-| Cold added context | < 250 tokens incl. schema | 587 B of tools JSON, 0 B system prompt = about 147 tokens (bytes/4 ESTIMATE, not a tokenizer count) | met (estimate) |
+| Source size | < 100 KB excl. tests | 64,190 bytes (`cat src/*.ts`, about 62.7 KiB) | met |
+| Cold added context | < 250 tokens incl. schema | 720 B tools-only delta (719 B `subagent` tool entry), 0 B system prompt = about 180 tokens (bytes/4 ESTIMATE, not a tokenizer count) | met (estimate) |
 | Startup overhead | < 10 ms p95 | Pi spawn to get_state, 20 interleaved runs after lazy loading and plain JSON Schema: delta vs bare p50 9.9 ms, p95 9.5 ms (paired p50 9.0, p95 16.0). An empty extension costs p50 8.8 ms, so Pi's own loading accounts for most of it; ours beyond that floor is p50 1.2 ms. Factory 0.1 ms. Before the change the delta was p50 10.7 to 12.5 ms, p95 26.6 to 45.2 ms | Met at p50/unpaired p95; paired p95 16 ms is noise-limited (see notes) |
 | Child startup | report p50/p95 vs Pi baseline | start to ack p50 252.0 / p95 273.4 ms vs direct RPC baseline spawn to get_state p50 236.3 / p95 345.7 ms | reported |
 | Duplicate notifications / silent output loss | 0 in tests | not a benchmark; covered by `bun test` | n/a |
@@ -87,10 +87,10 @@ First request body a real parent Pi (`--mode rpc`, default builtin tools, fake m
 | Variant | tools array (B) | system prompt (B) | whole body (B) | Added vs bare (tools + system) |
 | --- | --- | --- | --- | --- |
 | Bare Pi (read, bash, edit, write) | 2841 | 2837 | 5904 | baseline |
-| This extension (+ `subagent`) | 3428 | 2837 | 6491 | +587 B tools, +0 B system = 587 B, about 147 tokens (estimate) |
+| This extension (+ `subagent`) | 3561 | 2837 | 6624 | +720 B tools (719 B tool entry), +0 B system = 720 B, about 180 tokens (estimate) |
 | Pi official example subagent extension (`-e` standalone, loads fine, adds `subagent`) | 4651 | 2837 | 7714 | +1810 B tools, +0 B system = 1810 B, about 453 tokens (estimate) |
 
-This extension adds 3.1 times fewer bytes than the official example. Neither extension modifies the system prompt. Added tool JSON is a single `subagent` function with an action enum and five optional string/boolean fields.
+This extension adds 2.5 times fewer bytes than the official example. Neither extension modifies the system prompt. Added tool JSON is a single `subagent` function with an action enum and six optional string/boolean fields.
 
 ## Baselines summary
 
