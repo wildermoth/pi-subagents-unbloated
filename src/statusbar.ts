@@ -44,6 +44,10 @@ export interface RenderOptions {
   frame: number;
   width: number;
   style: Style;
+  /** Id of the job the list cursor is on, marked with an arrow. */
+  selected?: string;
+  /** Show the key hints under the list (the list is active). */
+  hint?: boolean;
   /** Cuts a styled line to the terminal width (ANSI and wide-character aware in production). */
   fit(line: string, width: number): string;
 }
@@ -113,19 +117,24 @@ function row(r: JobRecord, { now, frame, style: s }: RenderOptions): { head: str
   };
 }
 
+/** The jobs the cursor can move over: exactly the rows the widget draws. */
+export const selectable = (records: readonly JobRecord[]): JobRecord[] => select(records).shown.slice(0, MAX_ROWS);
+
 /** Tree-drawn lines, or undefined when there is nothing to show (clear the widget). */
 export function renderStatus(records: readonly JobRecord[], o: RenderOptions): string[] | undefined {
   const { shown, queued } = select(records);
   if (!shown.length && !queued) return undefined;
-  const rows = shown.slice(0, MAX_ROWS).map((r) => row(r, o));
+  const rows = shown.slice(0, MAX_ROWS).map((r): { head: string; sub?: string; id?: string } => ({ ...row(r, o), id: r.id }));
   const more = [shown.length > MAX_ROWS && `+${shown.length - MAX_ROWS} more`, queued > 0 && `${queued} queued`].filter(Boolean).join(", ");
   if (more) rows.push({ head: o.style.dim(more) });
   const live = shown.some(isRunning) || queued > 0;
   const lines = [`${live ? o.style.accent("●") : o.style.dim("○")} ${o.style.bold("Agents")}`];
-  rows.forEach(({ head, sub }, i) => {
+  rows.forEach(({ head, sub, id }, i) => {
     const last = i === rows.length - 1;
-    lines.push(`${last ? "└─" : "├─"} ${head}`);
+    const mark = id !== undefined && id === o.selected ? o.style.accent("▸") : "─";
+    lines.push(`${last ? "└" : "├"}${mark} ${head}`);
     if (sub) lines.push(`${last ? "   " : "│  "}    ${sub}`);
   });
+  if (o.hint) lines.push(o.style.dim("   ↑↓ select · enter actions · esc close"));
   return lines.map((l) => o.fit(l, o.width));
 }

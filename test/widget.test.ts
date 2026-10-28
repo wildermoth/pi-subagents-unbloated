@@ -93,6 +93,23 @@ test("a stale UI context is swallowed, then recovered by the next bind", () => {
   expect(f.log.mounts).toBe(1);
 });
 
+test("editorFocused is true for the prompt editor or when unknown, false for a dialog", () => {
+  const f = fakeUi();
+  live = createWidget(() => [rec("running")]);
+  expect(live.editorFocused()).toBe(true); // nothing mounted yet: unknown counts as the editor
+  live.bind(f.ui);
+  expect(live.editorFocused()).toBe(true);
+});
+
+test("the selection and hint come from the view when drawing", () => {
+  const f = fakeUi();
+  live = createWidget(() => [rec("running")], { selected: () => "j1", active: () => true });
+  live.bind(f.ui);
+  const lines = f.component().render(100);
+  expect(lines[1]).toMatch(/^└▸ /);
+  expect(lines.at(-1)).toContain("esc close");
+});
+
 test("without a UI, updates do nothing", () => {
   live = createWidget(() => [rec("running")]);
   expect(() => {

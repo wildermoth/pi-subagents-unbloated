@@ -6,9 +6,15 @@ import { renderStatus, select, type Style } from "./statusbar.ts";
 const KEY = "subagents";
 const TICK_MS = 100;
 
-export function createWidget(records: () => readonly JobRecord[]) {
+/** What the list cursor adds to the drawing; both read live so a repaint always matches the keyboard state. */
+export interface WidgetView {
+  selected(): string | undefined;
+  active(): boolean;
+}
+
+export function createWidget(records: () => readonly JobRecord[], view?: WidgetView) {
   let ui: ExtensionUIContext | undefined;
-  let tui: { requestRender(): void } | undefined;
+  let tui: { requestRender(): void; focusedComponent?: unknown } | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   let fit: ((line: string, width: number) => string) | undefined;
   let mounted = false; // setWidget may call its factory later, so track mounting here, not via tui
@@ -46,7 +52,16 @@ export function createWidget(records: () => readonly JobRecord[]) {
               bold: (s) => theme.bold(s),
             };
             return {
-              render: (width) => renderStatus(records(), { now: Date.now(), frame, width, style, fit: fit ?? ((l) => l) }) ?? [],
+              render: (width) =>
+                renderStatus(records(), {
+                  now: Date.now(),
+                  frame,
+                  width,
+                  style,
+                  fit: fit ?? ((l) => l),
+                  selected: view?.selected(),
+                  hint: view?.active(),
+                }) ?? [],
               invalidate: () => {},
             };
           },
@@ -86,6 +101,11 @@ export function createWidget(records: () => readonly JobRecord[]) {
       update();
     },
     /** Progress arrived. While something runs the spinner tick repaints within 100ms, so only start the widget if it is not running yet. */
+    /** True when Pi's prompt editor owns the keyboard, not one of its dialogs or overlays. Unknown counts as yes. */
+    editorFocused: (): boolean => {
+      const focused = tui?.focusedComponent as { getText?: unknown; setText?: unknown } | null | undefined;
+      return focused == null || (typeof focused.getText === "function" && typeof focused.setText === "function");
+    },
     touch: (): void => {
       if (!timer) update();
     },

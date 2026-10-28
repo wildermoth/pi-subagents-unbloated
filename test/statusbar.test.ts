@@ -120,6 +120,16 @@ describe("renderStatus", () => {
     expect(lines.at(-1)).toBe("└─ +2 more, 2 queued");
   });
 
+  test("the selected row gets an arrow in place of its second dash, and an active list shows its key hints", () => {
+    const records = [rec("1", "running"), rec("2", "running")];
+    const lines = renderStatus(records, opts({ selected: "2", hint: true, style: tagged }))!;
+    expect(lines[1]).toMatch(/^├─ /); // the rail is untouched on rows that are not selected
+    expect(lines[3]).toMatch(/^└<a>▸<\/a> /);
+    expect(lines.at(-1)).toContain("↑↓ select · enter actions · esc close");
+    const plainLines = renderStatus(records, opts())!;
+    expect(plainLines.some((l) => l.includes("▸") || l.includes("esc close"))).toBe(false);
+  });
+
   test("only queued jobs still show a summary row", () => {
     expect(renderStatus([rec("1", "queued")], opts())).toEqual(["● Agents", "└─ 1 queued"]);
   });
