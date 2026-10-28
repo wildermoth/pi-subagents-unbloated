@@ -13,6 +13,8 @@ export interface JobRecord {
   endedAt?: number;
   result?: RunResult;
   delivered: boolean;
+  /** Shown to the model with the result, e.g. where isolated work was kept. */
+  note?: string;
 }
 
 export interface StartRequest {

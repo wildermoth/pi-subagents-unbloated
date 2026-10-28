@@ -80,6 +80,13 @@ async function exists(p: string): Promise<boolean> {
  * parent's `git status`, on the same filesystem as the repo, scoped per repo (no
  * collisions in a shared tmp), and shared by linked worktrees of the same repo.
  */
+/** Top-level directory of the repository containing cwd. */
+export async function repoRootOf(cwd: string): Promise<string> {
+  const r = await run(cwd, ["rev-parse", "--show-toplevel"]);
+  if (r.code !== 0) throw new IsolationError("git", `not a git repository: ${cwd}`, cwd);
+  return realpath(text(r.out).trim());
+}
+
 export async function create(opts: { repoRoot: string; id: string; baseDir?: string }): Promise<Workspace> {
   const { id } = opts;
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || id.includes("..") || id.endsWith(".lock")) {

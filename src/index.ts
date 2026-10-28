@@ -1,6 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Inbox } from "./inbox.ts";
+import { join, relative } from "node:path";
 import type { JobRecord, Jobs } from "./jobs.ts";
+import type { Workspace } from "./isolation.ts";
 import type { Runner } from "./types.ts";
 
 const TIMEOUT_MS = 30 * 60_000;
@@ -11,29 +13,35 @@ const JOB_ENTRY = "subagent-job";
 const params = {
   type: "object",
   properties: {
-    action: { type: "string", enum: ["start", "list", "status", "steer", "cancel", "agents", "inbox"] },
+    action: { type: "string", enum: ["start", "list", "status", "steer", "cancel", "agents", "inbox", "diff", "apply", "discard"] },
     agent: { type: "string" },
     task: { type: "string", description: "Self-contained brief; the agent sees nothing else" },
     id: { type: "string" },
     message: { type: "string" },
     wait: { type: "boolean", description: "Block until finished (default: background)" },
+    isolate: { type: "boolean", description: "Run in a git worktree; review with diff, then apply or discard" },
   },
   required: ["action"],
 } as never;
 
 interface Params {
-  action: "start" | "list" | "status" | "steer" | "cancel" | "agents" | "inbox";
+  action: "start" | "list" | "status" | "steer" | "cancel" | "agents" | "inbox" | "diff" | "apply" | "discard";
   agent?: string;
   task?: string;
   id?: string;
   message?: string;
   wait?: boolean;
+  isolate?: boolean;
 }
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: undefined });
 let agentsMod: Promise<typeof import("./agents.ts")> | undefined;
 /** One shared import: Pi's loader hands concurrent first imports a half-initialised module. */
 const agentsModule = () => (agentsMod ??= import("./agents.ts"));
+let isoMod: Promise<typeof import("./isolation.ts")> | undefined;
+const isolationModule = () => (isoMod ??= import("./isolation.ts"));
+const WS_ENTRY = "subagent-workspace";
+const MAX_DIFF_CHARS = 6000;
 const line = (r: JobRecord) => `${r.id} ${r.agent} ${r.state}${r.delivered ? "" : r.result ? " (unread)" : ""}: ${r.task.slice(0, 60)}`;
 
 export default function (pi: ExtensionAPI, injected?: Runner) {
@@ -41,8 +49,22 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   let state: { jobs: Jobs; inbox: Inbox; isWriter: (tools?: string[]) => boolean } | undefined;
   let pending: ReturnType<typeof build> | undefined; // parallel first calls must share one state
   let interrupted: JobRecord[] = [];
+  const workspaces = new Map<string, Workspace>(); // job id -> isolated worktree, kept until apply or discard
 
   let waking = false; // a wake is in flight; sendMessage defers inside agent_settled, so isIdle() stays true meanwhile
+
+  /** The job's worktree, refusing while the job could still be writing to it. */
+  function workspaceOf(id: string): Workspace {
+    const ws = workspaces.get(id);
+    if (!ws) throw new Error(`job ${id} has no isolated worktree`);
+    const r = state?.jobs.get(id);
+    if (r && !["completed", "failed", "cancelled"].includes(r.state)) throw new Error(`job ${id} is still ${r.state}; wait or cancel first`);
+    return ws;
+  }
+  function forget(id: string) {
+    workspaces.delete(id);
+    pi.appendEntry(WS_ENTRY, { jobId: id, discarded: true });
+  }
 
   /** Deliver everything finished and unread in one message. wake=false lands it in context without starting a turn. */
   function flush(wake: boolean) {
@@ -111,22 +133,47 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           const { discoverAgents, resolveAgent } = await agentsModule();
           const { agents } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
           const def = resolveAgent(agents, p.agent!);
-          const rec = jobs.start({
-            agent: def.name,
-            writes: isWriter(def.tools),
-            repoKey: c.cwd,
-            spec: {
-              cwd: c.cwd,
-              task: p.task!,
-              systemPrompt: def.prompt,
-              tools: def.tools,
-              model: def.model ?? (c.model ? `${c.model.provider}/${c.model.id}` : undefined),
-              thinking: c.thinkingLevel,
-              trusted: c.isProjectTrusted(),
-              timeoutMs: TIMEOUT_MS,
-              launchTimeoutMs: LAUNCH_TIMEOUT_MS,
-            },
-          });
+          let cwd = c.cwd;
+          let ws: Workspace | undefined;
+          if (p.isolate) {
+            const iso = await isolationModule();
+            const root = await iso.repoRootOf(c.cwd);
+            ws = await iso.create({ repoRoot: root, id: crypto.randomUUID().slice(0, 12) });
+            cwd = join(ws.path, relative(root, c.cwd));
+          }
+          let rec: JobRecord;
+          try {
+            rec = jobs.start({
+              agent: def.name,
+              writes: ws ? false : isWriter(def.tools), // an isolated writer cannot collide with anyone
+              repoKey: ws ? ws.path : c.cwd,
+              spec: {
+                cwd,
+                task: p.task!,
+                systemPrompt: def.prompt,
+                tools: def.tools,
+                model: def.model ?? (c.model ? `${c.model.provider}/${c.model.id}` : undefined),
+                thinking: c.thinkingLevel,
+                trusted: c.isProjectTrusted(),
+                timeoutMs: TIMEOUT_MS,
+                launchTimeoutMs: LAUNCH_TIMEOUT_MS,
+              },
+            });
+          } catch (e) {
+            if (ws) {
+              try {
+                await (await isolationModule()).discard(ws);
+              } catch {
+                throw new Error(`${(e as Error).message}; unused worktree left at ${ws.path}`);
+              }
+            }
+            throw e;
+          }
+          if (ws) {
+            workspaces.set(rec.id, ws);
+            rec.note = `worktree kept: diff ${rec.id}, then apply or discard ${rec.id}`;
+            pi.appendEntry(WS_ENTRY, { jobId: rec.id, ws });
+          }
           if (!p.wait) return text(`started ${rec.id} (${def.name})`);
           const onAbort = () => void jobs.cancel(rec.id);
           if (signal?.aborted) onAbort();
@@ -142,7 +189,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           return text(out);
         }
         case "list":
-          return text([...interrupted, ...jobs.list()].map(line).join("\n") || "no jobs");
+          return text([...interrupted, ...jobs.list()].map((r) => line(r) + (workspaces.has(r.id) ? " [worktree]" : "")).join("\n") || "no jobs");
         case "status": {
           need("id");
           const r = jobs.get(p.id!) ?? interrupted.find((j) => j.id === p.id);
@@ -159,6 +206,40 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
           const r = await jobs.cancel(p.id!);
           inbox.take(r.id); // the caller is told here, a later wakeup would repeat it
           return text(`${r.id} ${r.state}`);
+        }
+        case "diff": {
+          need("id");
+          const { changed, diff, clean } = await (await isolationModule()).inspect(workspaceOf(p.id!));
+          if (clean) return text("no changes");
+          const head = `${changed.length} changed:\n${changed.slice(0, 50).join("\n")}`;
+          const more = diff.length > MAX_DIFF_CHARS ? `\n[diff truncated, ${diff.length - MAX_DIFF_CHARS} more characters]` : "";
+          return text(`${head}\n\n${diff.slice(0, MAX_DIFF_CHARS)}${more}`);
+        }
+        case "apply": {
+          need("id");
+          const ws = workspaceOf(p.id!);
+          const iso = await isolationModule();
+          let applied: string[];
+          try {
+            ({ applied } = await iso.apply(ws));
+          } catch (e) {
+            throw new Error(`${(e as Error).message}. Worktree kept at ${ws.path} (branch ${ws.branch}); nothing was changed in your tree.`);
+          }
+          forget(p.id!);
+          let left = "";
+          try {
+            await iso.discard(ws, { force: true }); // safe: the changes now live in the parent tree
+          } catch (e) {
+            left = `\nworktree cleanup incomplete: ${(e as Error).message}`;
+          }
+          return text(`applied ${applied.length} file(s):\n${applied.join("\n")}${left}`);
+        }
+        case "discard": {
+          need("id");
+          const ws = workspaceOf(p.id!);
+          await (await isolationModule()).discard(ws, { force: true });
+          forget(p.id!);
+          return text(`discarded ${p.id}`);
         }
         case "inbox":
           return text(inbox.size ? inbox.format(inbox.drain()) : "no finished jobs pending");
@@ -179,6 +260,13 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     const seen = c.sessionManager.getBranch()
       .filter((e) => e.type === "custom" && e.customType === JOB_ENTRY)
       .map((e) => (e as { data: JobRecord }).data);
+    workspaces.clear();
+    for (const e of c.sessionManager.getBranch()) {
+      if (e.type !== "custom" || e.customType !== WS_ENTRY) continue;
+      const d = (e as { data: { jobId: string; ws?: Workspace; discarded?: boolean } }).data;
+      if (d.discarded) workspaces.delete(d.jobId);
+      else if (d.ws) workspaces.set(d.jobId, d.ws);
+    }
     if (!seen.length) return;
     const { restoreInterrupted } = await import("./jobs.ts");
     interrupted = restoreInterrupted(seen).filter((r) => r.state === "interrupted" && !seen.some((s) => s.id === r.id && s.state === "interrupted"));

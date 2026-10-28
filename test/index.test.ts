@@ -1,75 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import register from "../src/index.ts";
-import type { Child, RunResult, RunSpec, Runner } from "../src/types.ts";
-
-const ok = (text: string): RunResult => ({ status: "completed", text, truncated: false });
-
-interface Ctl { spec: RunSpec; finish(r: RunResult): void; steered: string[]; cancelled: number }
-
-function harness(branch: unknown[] = [], failSend = { on: false }) {
-  const handlers: Record<string, (e: any, c: any) => any> = {};
-  const sent: { msg: any; opts: any }[] = [];
-  const entries: { type: string; data: any }[] = [];
-  let tool: any;
-  const ctls: Ctl[] = [];
-  const runner: Runner = {
-    start(spec): Child {
-      let resolve!: (r: RunResult) => void;
-      const done = new Promise<RunResult>((r) => (resolve = r));
-      const ctl: Ctl = { spec, finish: resolve, steered: [], cancelled: 0 };
-      ctls.push(ctl);
-      return {
-        done,
-        steer: async (m) => void ctl.steered.push(m),
-        cancel: async () => {
-          ctl.cancelled++;
-          resolve({ status: "cancelled", text: "", truncated: false });
-        },
-      };
-    },
-  };
-  const pi = {
-    registerTool: (t: any) => (tool = t),
-    registerCommand: () => {},
-    on: (n: string, h: any) => (handlers[n] = h),
-    sendMessage: (msg: any, opts: any) => {
-      if (failSend.on) throw new Error("send failed");
-      sent.push({ msg, opts });
-    },
-    appendEntry: (type: string, data: any) => entries.push({ type, data }),
-  };
-  register(pi as any, runner);
-  let idle = true;
-  const ctx = (cwd: string, trusted = true) => ({
-    cwd, isProjectTrusted: () => trusted, isIdle: () => idle, model: undefined, thinkingLevel: "low",
-    sessionManager: { getBranch: () => branch },
-  });
-  return { handlers, sent, entries, tool, ctls, ctx, setIdle: (v: boolean) => (idle = v) };
-}
+import { rm } from "node:fs/promises";
+import { harness, ok, project as mkProject, run, started, tick, txt } from "./helpers/harness.ts";
 
 let dirs: string[] = [];
-async function project() {
-  const cwd = await mkdtemp(join(tmpdir(), "psu-"));
-  dirs.push(cwd);
-  await mkdir(join(cwd, ".pi", "agents"), { recursive: true });
-  await writeFile(join(cwd, ".pi", "agents", "scout.md"), "---\nname: scout\ndescription: Explore\ntools: read,grep\n---\nBe brief.");
-  return cwd;
-}
+const project = () => mkProject(dirs);
 afterEach(async () => {
   await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
   dirs = [];
 });
-/** Wait until n children have been started (first call pays the cold dynamic imports). */
-async function started(h: { ctls: unknown[] }, n = 1) {
-  for (let i = 0; i < 2000 && h.ctls.length < n; i++) await new Promise((r) => setTimeout(r, 1));
-}
-const tick = () => new Promise((r) => setTimeout(r, 5));
-const run = (h: ReturnType<typeof harness>, cwd: string, p: object, signal?: AbortSignal) =>
-  h.tool.execute("t", p, signal, undefined, h.ctx(cwd));
-const txt = (r: any) => r.content[0].text as string;
 
 test("registers one tool with a short description", () => {
   const h = harness();

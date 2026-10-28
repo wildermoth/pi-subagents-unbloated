@@ -46,6 +46,7 @@ export function createInbox(opts: { onPublish?: () => void; maxTextBytes?: numbe
       if (c.cut) lines.push(`[truncated: showing ${enc.encode(c.text).length} of ${c.total} bytes]`);
       else if (res.truncated) lines.push("[truncated by runner]");
     }
+    if (r.note) lines.push(r.note);
     return lines.join("\n");
   }
 
