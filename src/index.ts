@@ -163,7 +163,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
             rec.note = `worktree kept: diff ${rec.id}, then apply or discard ${rec.id}`;
             pi.appendEntry(WS_ENTRY, { jobId: rec.id, ws });
           }
-          if (!p.wait) return text(`started ${rec.id} (${def.name}). ${WAIT_HINT}`);
+          if (!p.wait) return text(`started ${rec.id} (${def.name}). Do not poll; results arrive on their own.`);
           const onAbort = () => void jobs.cancel(rec.id);
           if (signal?.aborted) onAbort();
           else signal?.addEventListener("abort", onAbort, { once: true });
