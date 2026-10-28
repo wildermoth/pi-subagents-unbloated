@@ -12,9 +12,12 @@ function track() {
   return { seen, feed: createTracker((p) => seen.push(p)) };
 }
 
-test("counts turns, takes context size from the latest usage, and keeps the latest text", () => {
+test("counts a turn as it starts, takes context size from the latest usage, and keeps the latest text", () => {
   const { seen, feed } = track();
+  feed({ type: "turn_start" });
+  expect(seen.at(-1)).toEqual({ turns: 1, tools: 0, tokens: 0, active: [], text: "" }); // visible before the turn finishes
   feed(assistant("one", 100));
+  feed({ type: "turn_start" });
   feed(assistant("two", 250));
   expect(seen.at(-1)).toEqual({ turns: 2, tools: 0, tokens: 250, active: [], text: "two" });
 });

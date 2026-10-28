@@ -97,9 +97,11 @@ describe("splitModel", () => {
 describe("sdk runner", () => {
   test("completes with the last assistant text, reports progress, and releases the session", async () => {
     const f = fakeSdk((s) => {
+      s.emit({ type: "turn_start" });
       s.say(assistant("working", "stop", { usage: { totalTokens: 500 } }));
       s.emit({ type: "tool_execution_start", toolCallId: "t1", toolName: "read" });
       s.emit({ type: "tool_execution_end", toolCallId: "t1", toolName: "read" });
+      s.emit({ type: "turn_start" });
       s.say(assistant("the answer", "stop", { usage: { totalTokens: 900 } }));
     });
     const seen: Progress[] = [];

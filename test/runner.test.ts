@@ -52,7 +52,7 @@ describe("results", () => {
     const seen: Progress[] = [];
     const r = await run("tools", { onProgress: (p) => seen.push(p) }).child.done;
     expect(r.text).toBe("tools done");
-    expect(seen.map((p) => p.active)).toEqual([["read"], ["read", "grep"], ["grep"], [], []]);
+    expect(seen.map((p) => p.active)).toEqual([[], ["read"], ["read", "grep"], ["grep"], [], []]);
     expect(seen.at(-1)).toEqual({ turns: 1, tools: 2, tokens: 1234, active: [], text: "tools done" });
     const bad = await run("normal", {
       onProgress: () => {

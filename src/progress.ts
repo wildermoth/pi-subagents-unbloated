@@ -21,12 +21,14 @@ export function createTracker(onChange: ((p: Progress) => void) | undefined): (e
       case "message_end": {
         const m = asRecord(ev.message);
         if (m?.role !== "assistant") return;
-        p.turns++;
         p.text = assistantText(m);
         const total = asRecord(m.usage)?.totalTokens;
         if (typeof total === "number") p.tokens = total; // context size after this turn, not a running sum
         return emit();
       }
+      case "turn_start": // counted as it begins, so a long first turn already reads as turn 1
+        p.turns++;
+        return emit();
       case "tool_execution_start":
         p.tools++;
         running.set(String(ev.toolCallId), String(ev.toolName));

@@ -25,6 +25,7 @@ const respond = (id: string, command: string, data?: unknown) =>
 async function finish(text: string, msg: object = {}) {
   const m = assistant(text, msg);
   out({ type: "agent_start" });
+  out({ type: "turn_start" });
   out({ type: "message_end", message: m });
   out({ type: "agent_end", messages: [m], willRetry: false });
   out({ type: "agent_settled", aborted: false });
@@ -68,11 +69,17 @@ async function onPrompt(id: string) {
       return;
     case "tools": // two overlapping tool calls, then an answer
       out({ type: "agent_start" });
+      out({ type: "turn_start" });
       out({ type: "tool_execution_start", toolCallId: "t1", toolName: "read", args: {} });
       out({ type: "tool_execution_start", toolCallId: "t2", toolName: "grep", args: {} });
       out({ type: "tool_execution_end", toolCallId: "t1", toolName: "read", result: {}, isError: false });
       out({ type: "tool_execution_end", toolCallId: "t2", toolName: "grep", result: {}, isError: false });
-      return finish("tools done");
+      {
+        const m = assistant("tools done");
+        out({ type: "message_end", message: m });
+        out({ type: "agent_end", messages: [m], willRetry: false });
+        return out({ type: "agent_settled", aborted: false });
+      }
     case "length":
       return finish("cut off mid sen", { stopReason: "length" });
     case "never-settles":
