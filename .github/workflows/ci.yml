@@ -13,7 +13,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
@@ -21,14 +21,14 @@ jobs:
 
   integration:
     # Runs the gated tests against a real Pi. The pinned Pi (devDependency) is
-    # installed by `bun install` and put on PATH. Pi needs Node >= 22.19.
+    # installed by `bun install` and put on PATH. Pi needs Node >= 22.19; CI runs the current LTS.
     runs-on: ubuntu-latest
     needs: test
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
@@ -41,10 +41,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
