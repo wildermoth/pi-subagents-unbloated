@@ -150,6 +150,18 @@ describe("jobs", () => {
     expect(jobs.active).toBe(0);
   });
 
+  test("outstanding jobs are capped and a finished job frees room", async () => {
+    const f = fake();
+    const jobs = createJobs({ runner: f.runner, maxConcurrent: 1, maxOutstanding: 2 });
+    const a = jobs.start(req());
+    const b = jobs.start(req());
+    expect(() => jobs.start(req())).toThrow(/too many outstanding jobs \(2\)/);
+    f.children[0]!.finish(ok());
+    await jobs.wait(a.id);
+    expect(jobs.start(req()).state).toBe("queued");
+    expect(b.state).toBe("running");
+  });
+
   test("queue saturation, FIFO, and cancel of queued never spawns", async () => {
     const f = fake();
     const jobs = createJobs({ runner: f.runner, maxConcurrent: 2 });

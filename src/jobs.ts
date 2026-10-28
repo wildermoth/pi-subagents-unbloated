@@ -67,6 +67,7 @@ interface Entry {
 export function createJobs(opts: {
   runner: Runner;
   maxConcurrent?: number;
+  maxOutstanding?: number;
   maxHistory?: number;
   onTerminal?: (r: JobRecord) => void;
   onChange?: (r: JobRecord) => void;
@@ -74,6 +75,7 @@ export function createJobs(opts: {
   id?: () => string;
 }): Jobs {
   const max = opts.maxConcurrent ?? 4;
+  const maxOutstanding = opts.maxOutstanding ?? 64;
   const maxHistory = opts.maxHistory ?? 100;
   const now = opts.now ?? Date.now;
   let seq = 0;
@@ -193,6 +195,7 @@ export function createJobs(opts: {
   return {
     start(req) {
       if (closed) throw new Error("jobs are shut down");
+      if (entries.size >= maxOutstanding) throw new Error(`too many outstanding jobs (${maxOutstanding}); wait for or cancel some`);
       const id = newId();
       let resolve!: (r: JobRecord) => void;
       const settled = new Promise<JobRecord>((r) => (resolve = r));
