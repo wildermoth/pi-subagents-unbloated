@@ -1,0 +1,213 @@
+import { expect, test } from "bun:test";
+import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { createAgentList } from "../src/agent-list.ts";
+import type { JobRecord } from "../src/jobs.ts";
+
+const DOWN = "\x1b[B";
+const UP = "\x1b[A";
+const ESC = "\x1b";
+const ENTER = "\r";
+
+const job = (id: string, state: JobRecord["state"], o: Partial<JobRecord> = {}): JobRecord => ({
+  id,
+  agent: `agent-${id}`,
+  task: `task ${id}`,
+  state,
+  createdAt: 0,
+  delivered: false,
+  ...o,
+});
+
+/** A terminal stand-in plus a list wired to scriptable jobs and spies for each action. */
+async function setup(jobs: JobRecord[], answers: (string | undefined)[] = [], text = "") {
+  const calls = {
+    redraws: 0,
+    steer: [] as string[][],
+    cancel: [] as string[],
+    configure: [] as string[],
+    notes: [] as string[],
+    editor: [] as string[][],
+  };
+  let handler: ((d: string) => { consume?: boolean } | undefined) | undefined;
+  let focused = true;
+  const asked: { title: string; options: string[] }[] = [];
+  const ui = {
+    onTerminalInput: (h: typeof handler) => ((handler = h), () => (handler = undefined)),
+    getEditorText: () => text,
+    select: async (title: string, options: string[]) => (asked.push({ title, options }), answers.shift()),
+    input: async () => answers.shift(),
+    editor: async (title: string, body: string) => void calls.editor.push([title, body]),
+    notify: (m: string) => void calls.notes.push(m),
+  } as unknown as ExtensionUIContext;
+  const list = createAgentList({
+    records: () => jobs,
+    redraw: () => void calls.redraws++,
+    editorFocused: () => focused,
+    steer: async (id, m) => void calls.steer.push([id, m]),
+    cancel: async (id) => void calls.cancel.push(id),
+    configure: async (a) => void calls.configure.push(a),
+  });
+  await list.bind(ui);
+  const press = (k: string) => handler?.(k);
+  return { list, press, calls, asked, setText: (t: string) => (text = t), setFocused: (f: boolean) => (focused = f), jobs };
+}
+const flush = () => new Promise((r) => setTimeout(r, 5));
+
+test("Down at an empty prompt activates the list on the first agent and swallows the key", async () => {
+  const t = await setup([job("1", "running"), job("2", "running")]);
+  expect(t.press(DOWN)).toEqual({ consume: true });
+  expect(t.list.active()).toBe(true);
+  expect(t.list.selected()).toBe("1");
+  expect(t.calls.redraws).toBeGreaterThan(0);
+});
+
+test("Down does nothing while you are typing, with no agents to select, or when a dialog has the keyboard", async () => {
+  const typing = await setup([job("1", "running")], [], "half a message");
+  expect(typing.press(DOWN)).toBeUndefined();
+  expect(typing.list.active()).toBe(false);
+  const none = await setup([job("1", "queued"), job("2", "completed", { delivered: true })]);
+  expect(none.press(DOWN)).toBeUndefined();
+  const dialog = await setup([job("1", "running")]);
+  dialog.setFocused(false);
+  expect(dialog.press(DOWN)).toBeUndefined();
+});
+
+test("Up and Down move the cursor within the rows; Up past the top closes the list", async () => {
+  const t = await setup([job("1", "running"), job("2", "running"), job("3", "running")]);
+  t.press(DOWN);
+  t.press(DOWN);
+  expect(t.list.selected()).toBe("2");
+  t.press(DOWN);
+  t.press(DOWN);
+  expect(t.list.selected()).toBe("3"); // stops at the last row
+  t.press(UP);
+  expect(t.list.selected()).toBe("2");
+  t.press(UP);
+  t.press(UP);
+  expect(t.list.active()).toBe(false);
+  expect(t.list.selected()).toBeUndefined();
+});
+
+test("Escape closes the list and is consumed, so it can never cancel Pi's turn; outside the list it passes through", async () => {
+  const t = await setup([job("1", "running")]);
+  expect(t.press(ESC)).toBeUndefined(); // not active: Pi keeps its own Esc
+  t.press(DOWN);
+  expect(t.press(ESC)).toEqual({ consume: true });
+  expect(t.list.active()).toBe(false);
+});
+
+test("any other key closes the list and goes on to the editor", async () => {
+  const t = await setup([job("1", "running")]);
+  t.press(DOWN);
+  expect(t.press("a")).toBeUndefined();
+  expect(t.list.active()).toBe(false);
+});
+
+test("Enter on a running agent offers steer, cancel and model; Steer sends the trimmed message", async () => {
+  const t = await setup([job("1", "running")], ["Steer", "  look at auth  "]);
+  t.press(DOWN);
+  expect(t.press(ENTER)).toEqual({ consume: true });
+  await flush();
+  expect(t.asked[0]!.options).toEqual(["Steer", "Cancel", "Model and thinking", "Back"]);
+  expect(t.calls.steer).toEqual([["1", "look at auth"]]);
+});
+
+test("an empty steer message sends nothing", async () => {
+  const t = await setup([job("1", "running")], ["Steer", "   "]);
+  t.press(DOWN);
+  t.press(ENTER);
+  await flush();
+  expect(t.calls.steer).toEqual([]);
+});
+
+test("Cancel cancels that agent, and Model and thinking configures that agent's file", async () => {
+  const c = await setup([job("1", "running")], ["Cancel"]);
+  c.press(DOWN);
+  c.press(ENTER);
+  await flush();
+  expect(c.calls.cancel).toEqual(["1"]);
+  const m = await setup([job("2", "running")], ["Model and thinking"]);
+  m.press(DOWN);
+  m.press(ENTER);
+  await flush();
+  expect(m.calls.configure).toEqual(["agent-2"]);
+});
+
+test("a finished unread agent offers its result instead of steer and cancel", async () => {
+  const done = job("1", "completed", { result: { status: "completed", text: "the answer", truncated: false } });
+  const t = await setup([done], ["Show result"]);
+  t.press(DOWN);
+  t.press(ENTER);
+  await flush();
+  expect(t.asked[0]!.options).toEqual(["Show result", "Model and thinking", "Back"]);
+  expect(t.calls.editor).toEqual([["agent-1 (completed)", "the answer"]]);
+});
+
+test("a failed agent's result includes why", async () => {
+  const failed = job("1", "failed", {
+    result: { status: "failed", text: "partial", truncated: false, failure: { kind: "exit", message: "Pi exited" } },
+  });
+  const t = await setup([failed], ["Show result"]);
+  t.press(DOWN);
+  t.press(ENTER);
+  await flush();
+  expect(t.calls.editor[0]![1]).toBe("partial\n\nPi exited");
+});
+
+test("choosing Back, or escaping the menu, does nothing; keys belong to the menu while it is open", async () => {
+  const t = await setup([job("1", "running")], ["Back"]);
+  t.press(DOWN);
+  t.press(ENTER);
+  expect(t.press(DOWN)).toBeUndefined(); // the menu is open: the list stays out of its keys
+  await flush();
+  expect(t.calls.steer).toEqual([]);
+  expect(t.calls.cancel).toEqual([]);
+  const esc = await setup([job("1", "running")], [undefined]);
+  esc.press(DOWN);
+  esc.press(ENTER);
+  await flush();
+  expect(esc.calls.cancel).toEqual([]);
+});
+
+test("an action that throws is reported, not lost", async () => {
+  const t = await setup([job("1", "running")], ["Cancel"]);
+  const bad = createAgentList({
+    records: () => t.jobs,
+    redraw() {},
+    editorFocused: () => true,
+    steer: async () => {},
+    cancel: async () => {
+      throw new Error("could not cancel");
+    },
+    configure: async () => {},
+  });
+  const notes: string[] = [];
+  let h: ((d: string) => { consume?: boolean } | undefined) | undefined;
+  await bad.bind({
+    onTerminalInput: (x: typeof h) => ((h = x), () => {}),
+    getEditorText: () => "",
+    select: async () => "Cancel",
+    notify: (m: string) => void notes.push(m),
+  } as unknown as ExtensionUIContext);
+  h!(DOWN);
+  h!(ENTER);
+  await flush();
+  expect(notes).toEqual(["could not cancel"]);
+});
+
+test("the list closes by itself when the agents it pointed at are gone", async () => {
+  const t = await setup([job("1", "running")], ["Back"]);
+  t.press(DOWN);
+  t.jobs.length = 0;
+  t.press(ENTER);
+  await flush();
+  expect(t.list.active()).toBe(false);
+});
+
+test("rebinding to another terminal drops the old listener, and dispose stops listening", async () => {
+  const t = await setup([job("1", "running")]);
+  t.press(DOWN);
+  await t.list.bind(undefined);
+  expect(t.list.active()).toBe(false);
+  expect(t.press(DOWN)).toBeUndefined();
+});

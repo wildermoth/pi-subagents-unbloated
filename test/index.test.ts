@@ -145,6 +145,23 @@ test("inprocess agents are marked on the run spec, others are not", async () => 
   expect(h.ctls.map((c) => c.spec.inprocess)).toEqual([true, undefined]);
 });
 
+test("Down at an empty prompt opens the list and swallows Down and Escape, and shutdown stops listening", async () => {
+  const cwd = await project();
+  const h = harness();
+  await h.handlers.session_start!({}, h.ctx(cwd));
+  await run(h, cwd, { action: "start", agent: "scout", task: "look around" });
+  await tick();
+  expect(h.keyHandlers).toHaveLength(1);
+  const key = (data: string) => h.keyHandlers[0]!(data);
+  expect(key("a")).toBeUndefined();
+  expect(key("\x1b[B")).toEqual({ consume: true });
+  expect(h.widgetLines()?.at(-1)).toContain("esc close");
+  expect(key("\x1b")).toEqual({ consume: true }); // Esc closes the list instead of cancelling the turn
+  expect(h.widgetLines()?.at(-1)).not.toContain("esc close");
+  await h.handlers.session_shutdown!({}, h.ctx(cwd));
+  expect(h.keyHandlers).toHaveLength(0);
+});
+
 test("start without an agent names the available agents in the error", async () => {
   const cwd = await project();
   const h = harness();

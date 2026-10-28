@@ -4,6 +4,7 @@ import { realpath } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { JobRecord, Jobs } from "./jobs.ts";
 import type { Workspace } from "./isolation.ts";
+import { createAgentList } from "./agent-list.ts";
 import { createWidget } from "./widget.ts";
 import { recover, JOB_ENTRY, UNREAD_ENTRY, WS_ENTRY } from "./recovery.ts";
 import { isDone, line, MAX_DIFF_CHARS, params, requireArgs, text, WAIT_HINT, type Params } from "./schema.ts";
@@ -34,7 +35,34 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
 
   let agentSection: Promise<string> | undefined; // cached for the session; reset at session_start
 
-  const widget = createWidget(() => state?.jobs.list() ?? []);
+  /** Terminal UI only: custom components and raw key input do not exist in Pi's other modes. */
+  const bindUi = (c: ExtensionContext) => {
+    const ui = c.mode === "tui" ? c.ui : undefined;
+    widget.bind(ui);
+    list.bind(ui).catch(() => {}); // keyboard control is a convenience; never let it break a session
+  };
+  const records = () => state?.jobs.list() ?? [];
+  const list = createAgentList({
+    records,
+    redraw: () => widget.update(),
+    editorFocused: () => widget.editorFocused(),
+    steer: async (id, message) => void (await getState()).jobs.steer(id, message),
+    cancel: async (id) => {
+      const { jobs, inbox } = await getState();
+      const r = await jobs.cancel(id);
+      inbox.take(id); // the user saw it here, so no wakeup should repeat it
+      return r;
+    },
+    configure: async (name) => {
+      if (!ctx) return;
+      const { discoverAgents } = await agentsModule();
+      const def = (await discoverAgents({ cwd: ctx.cwd, projectTrusted: ctx.isProjectTrusted() })).agents.get(name);
+      if (!def) return ctx.ui.notify(`agent "${name}" is no longer defined`, "warning");
+      const { configureAgent } = await import("./agent-config.ts");
+      await configureAgent(ctx, [def]);
+    },
+  });
+  const widget = createWidget(records, { selected: list.selected, active: list.active });
   let waking = false; // a wake is in flight; sendMessage defers inside agent_settled, so isIdle() stays true meanwhile
 
   /** The job's worktree, refusing while the job could still be writing to it. */
@@ -294,7 +322,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
 
   pi.on("session_start", async (_e, c) => {
     ctx = c;
-    widget.bind(c.mode === "tui" ? c.ui : undefined);
+    bindUi(c);
     agentSection = undefined;
     const { jobs: seen, workspaces: restored, unread } = recover(c.sessionManager.getBranch());
     workspaces.clear();
@@ -338,11 +366,12 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   });
   pi.on("agent_settled", (e, c) => {
     ctx = c;
-    widget.bind(c.mode === "tui" ? c.ui : undefined); // custom components only exist in the terminal UI
+    bindUi(c); // custom components only exist in the terminal UI
     waking = false;
     flushIfIdle(!e.aborted); // after a user abort, deliver passively instead of restarting the agent
   });
   pi.on("session_shutdown", async () => {
+    list.dispose();
     widget.dispose();
     ctx = undefined;
     const s = await pending?.catch(() => undefined);

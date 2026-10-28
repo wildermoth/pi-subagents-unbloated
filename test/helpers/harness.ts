@@ -49,7 +49,13 @@ export function harness(branch: unknown[] = [], failSend = { on: false }) {
   let idle = true;
   // Like Pi, build the widget component on mount; tests read what it would draw right now.
   let mounted: { render(w: number): string[] } | undefined;
+  const keyHandlers: ((data: string) => { consume?: boolean } | undefined)[] = [];
   const ui = {
+    onTerminalInput: (h: (data: string) => { consume?: boolean } | undefined) => {
+      keyHandlers.push(h);
+      return () => void keyHandlers.splice(keyHandlers.indexOf(h), 1);
+    },
+    getEditorText: () => "",
     setWidget: (_key: string, content: unknown) => {
       mounted =
         typeof content === "function"
@@ -69,7 +75,17 @@ export function harness(branch: unknown[] = [], failSend = { on: false }) {
     thinkingLevel: "low",
     sessionManager: { getBranch: () => branch },
   });
-  return { handlers, sent, entries, tool, ctls, ctx, widgetLines: () => mounted?.render(120), setIdle: (v: boolean) => (idle = v) };
+  return {
+    handlers,
+    sent,
+    entries,
+    tool,
+    ctls,
+    ctx,
+    keyHandlers,
+    widgetLines: () => mounted?.render(120),
+    setIdle: (v: boolean) => (idle = v),
+  };
 }
 
 export async function project(dirs: string[]) {
