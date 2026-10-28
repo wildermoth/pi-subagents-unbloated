@@ -22,7 +22,7 @@
     "bench": "bun bench/startup.ts && bun bench/delegation.ts && bun bench/context.ts"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": ">=1.4.0 <2"
   },
   "devDependencies": {
     "@types/bun": "latest",
