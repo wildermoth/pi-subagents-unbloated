@@ -19,11 +19,15 @@ const params = Type.Object({
 });
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: undefined });
+let agentsMod: Promise<typeof import("./agents.ts")> | undefined;
+/** One shared import: Pi's loader hands concurrent first imports a half-initialised module. */
+const agentsModule = () => (agentsMod ??= import("./agents.ts"));
 const line = (r: JobRecord) => `${r.id} ${r.agent} ${r.state}${r.delivered ? "" : r.result ? " (unread)" : ""}: ${r.task.slice(0, 60)}`;
 
 export default function (pi: ExtensionAPI, injected?: Runner) {
   let ctx: ExtensionContext | undefined;
   let state: { jobs: Jobs; inbox: Inbox } | undefined;
+  let pending: Promise<{ jobs: Jobs; inbox: Inbox }> | undefined; // parallel first calls must share one state
   let interrupted: JobRecord[] = [];
 
   /** Wake the orchestrator with everything finished and unread, once. */
@@ -40,8 +44,10 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     }
   };
 
-  async function getState() {
-    if (state) return state;
+  function getState() {
+    return (pending ??= build());
+  }
+  async function build() {
     const runner = injected ?? (await import("./runner.ts")).createRunner();
     const inbox = createInbox({ onPublish: flushIfIdle });
     const jobs = createJobs({
@@ -66,13 +72,13 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
       const { jobs, inbox } = await getState();
       switch (p.action) {
         case "agents": {
-          const { discoverAgents, listAgents } = await import("./agents.ts");
+          const { discoverAgents, listAgents } = await agentsModule();
           const { agents, warnings } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
           return text([listAgents(agents), ...warnings].filter(Boolean).join("\n") || "no agents defined");
         }
         case "start": {
           need("agent", "task");
-          const { discoverAgents, resolveAgent } = await import("./agents.ts");
+          const { discoverAgents, resolveAgent } = await agentsModule();
           const { agents } = await discoverAgents({ cwd: c.cwd, projectTrusted: c.isProjectTrusted() });
           const def = resolveAgent(agents, p.agent!);
           const rec = jobs.start({
@@ -156,7 +162,9 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   });
   pi.on("session_shutdown", async () => {
     ctx = undefined;
-    await state?.jobs.shutdown();
+    const s = await pending?.catch(() => undefined);
+    pending = undefined;
+    await s?.jobs.shutdown();
     state = undefined;
   });
 }

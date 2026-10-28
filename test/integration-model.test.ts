@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { makeAgentDir, sse, startFakeServer, chunk, textReply, usage } from "./helpers/fake-provider.ts";
 import { RpcConnection } from "../src/protocol.ts";
 import { buildArgs, createRunner, resolvePiCommand } from "../src/runner.ts";
 import type { RunSpec } from "../src/types.ts";
@@ -19,13 +20,6 @@ let server: ReturnType<typeof Bun.serve>;
 let agentDir: string;
 let work: string;
 const savedEnv = { dir: process.env.PI_CODING_AGENT_DIR, tel: process.env.PI_TELEMETRY };
-
-const chunk = (delta: object, finish: string | null = null, extra: object = {}) =>
-  `data: ${JSON.stringify({ id: "c1", object: "chat.completion.chunk", created: 0, model: "fake-model",
-    choices: [{ index: 0, delta, finish_reason: finish }], ...extra })}\n\n`;
-const usage = { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 };
-const sse = (parts: string[]) => new Response(parts.join("") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
-const textReply = (t: string) => sse([chunk({ role: "assistant", content: "" }), chunk({ content: t }), chunk({}, "stop", { usage })]);
 
 function handle(body: any): Response | Promise<Response> {
   const hasToolResult = body.messages?.some((m: any) => m.role === "tool");
@@ -45,20 +39,8 @@ beforeAll(() => {
   if (!enabled) return;
   work = mkdtempSync(join(tmpdir(), "pi-int-work-"));
   writeFileSync(join(work, "hello.txt"), "SECRET-CONTENT-42");
-  agentDir = mkdtempSync(join(tmpdir(), "pi-int-agent-"));
-  server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      if (!req.url.endsWith("/chat/completions")) return new Response("not found", { status: 404 });
-      const body = await req.json();
-      bodies.push(body);
-      return handle(body);
-    },
-  });
-  writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { fake: {
-    baseUrl: `http://127.0.0.1:${server.port}/v1`, api: "openai-completions", apiKey: "dummy",
-    models: [{ id: "fake-model", name: "Fake", reasoning: false, input: ["text"], contextWindow: 32000, maxTokens: 2000,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } }));
+  server = startFakeServer(handle, bodies);
+  agentDir = makeAgentDir(server.port!);
   // Marker extension: proves whether extensions load.
   mkdirSync(join(agentDir, "extensions"));
   writeFileSync(join(agentDir, "extensions", "marker.ts"),
