@@ -5,7 +5,11 @@
   "type": "module",
   "license": "MIT",
   "keywords": [
-    "pi-package"
+    "pi-package",
+    "pi",
+    "subagents",
+    "agents",
+    "extension"
   ],
   "pi": {
     "extensions": [
@@ -28,5 +32,13 @@
     "@earendil-works/pi-coding-agent": "1.4.0",
     "@earendil-works/pi-ai": "^1.4.0",
     "typebox": "^1.4.3"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
   }
 }
