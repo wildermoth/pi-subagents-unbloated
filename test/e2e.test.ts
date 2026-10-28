@@ -2,8 +2,9 @@
 // Run with PI_INTEGRATION=1 bun test test/e2e.test.ts
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { makeAgentDir, startFakeServer, textReply, toolCallsReply } from "./helpers/fake-provider.ts";
 import { RpcConnection } from "../src/protocol.ts";
@@ -15,6 +16,7 @@ const T = (name: string, fn: () => Promise<void>) => test.skipIf(!enabled)(name,
 const bodies: any[] = [];
 const childDone = new Map<string, true>(); // child task key -> reply sent
 let childDelay: Record<string, number> = {};
+let childScript: ((body: any) => Response | Promise<Response>) | undefined;
 let parentScript: (body: any, parentIdx: number) => Response | Promise<Response> = () => textReply("idle");
 let server: ReturnType<typeof Bun.serve>;
 let agentDir: string;
@@ -38,6 +40,7 @@ const toolTexts = (b: any) => b.messages.filter((m: any) => m.role === "tool").m
 
 async function handle(body: any): Promise<Response> {
   if (hasSubagent(body)) return parentScript(body, parentReqs().length - 1);
+  if (childScript) return childScript(body);
   const key = /task-([A-Z]+)/.exec(blob(body))?.[1] ?? "?";
   await Bun.sleep(childDelay[key] ?? 300);
   childDone.set(key, true);
@@ -60,17 +63,18 @@ afterEach(async () => {
   bodies.length = 0;
   childDone.clear();
   childDelay = {};
+  childScript = undefined;
 }, 20_000);
 
 class Parent {
   events: any[] = [];
   child: ChildProcess;
   conn: RpcConnection;
-  constructor() {
+  constructor(cwd = project) {
     const cmd = resolvePiCommand();
     const args = ["--mode", "rpc", "-e", resolve("src/index.ts"), "--no-skills", "--no-prompt-templates", "--no-themes", "--no-mcp",
       "--offline", "--no-session", "--model", "fake/fake-model", "--approve"];
-    this.child = spawn(cmd.command, [...cmd.args, ...args], { cwd: project, shell: false, stdio: ["pipe", "pipe", "pipe"],
+    this.child = spawn(cmd.command, [...cmd.args, ...args], { cwd, shell: false, stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_TELEMETRY: "0" } });
     this.conn = new RpcConnection(this.child, { onEvent: (e) => this.events.push(e), onProtocolError: () => {} });
   }
@@ -213,5 +217,47 @@ describe("e2e: real parent pi + subagent extension", () => {
       expect(alive(pid)).toBe(false);
       expect(() => process.kill(-pid, 0)).toThrow();
     }
+  });
+
+  T("(8) isolate: child writes in worktree, parent untouched until diff + apply", async () => {
+    writeFileSync(join(agentDir, "agents", "worker.md"), "---\nname: worker\ndescription: Writes\ntools: read,write\n---\nbe brief.");
+    const repo = mkdtempSync(join(tmpdir(), "pi-e2e-repo-"));
+    const git = (...a: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd: repo }).toString();
+    git("init", "-q");
+    writeFileSync(join(repo, "base.txt"), "base\n");
+    git("add", "-A");
+    git("commit", "-q", "-m", "init");
+    const pi = join(repo, ".git", "pi-subagents");
+    let seenInWorktree: string[] = [];
+    let parentBeforeApply = true;
+    childScript = (b) => {
+      if (hasToolResult(b)) {
+        // the write finished: snapshot where it landed
+        seenInWorktree = existsSync(pi) ? readdirSync(pi).filter((d) => existsSync(join(pi, d, "note.txt"))) : [];
+        parentBeforeApply = existsSync(join(repo, "note.txt"));
+        return textReply("wrote note");
+      }
+      return toolCallsReply([{ name: "write", args: { path: "note.txt", content: "hello\n" } }]);
+    };
+    let id = "";
+    parentScript = (b) => {
+      const results = toolTexts(b);
+      if (results.length === 0) return toolCallsReply([{ name: "subagent", args: { action: "start", agent: "worker", task: "make note", isolate: true, wait: true } }]);
+      id = /\[(\S+) worker\]/.exec(results[0]!)?.[1] ?? "";
+      if (results.length === 1) return toolCallsReply([{ name: "subagent", args: { action: "diff", id } }]);
+      if (results.length === 2) return toolCallsReply([{ name: "subagent", args: { action: "apply", id } }]);
+      return textReply("done");
+    };
+    live = new Parent(repo);
+    await live.prompt();
+    await live.settled(1);
+
+    expect(seenInWorktree.length).toBe(1);
+    expect(parentBeforeApply).toBe(false);
+    const results = toolTexts(parentReqs().at(-1)!);
+    expect(results[1]).toContain("note.txt");
+    expect(results[2]).toContain("applied 1 file");
+    expect(readFileSync(join(repo, "note.txt"), "utf8")).toBe("hello\n");
+    expect(existsSync(join(pi, seenInWorktree[0]!))).toBe(false);
   });
 });

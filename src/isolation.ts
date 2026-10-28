@@ -2,6 +2,7 @@
 // All git runs async via argv arrays. Submodules are not supported (gitlinks and
 // nested repos are skipped when carrying untracked files).
 import { chmod, copyFile, lstat, mkdir, readlink, realpath, symlink } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 
 export interface Workspace {
@@ -41,24 +42,26 @@ const snapRef = (id: string) => `refs/pi-subagents/${id}/snapshot`;
 interface Out { code: number; out: Uint8Array; err: string }
 
 async function run(cwd: string, args: string[], input?: Uint8Array): Promise<Out> {
-  let proc;
-  try {
-    proc = Bun.spawn(["git", ...args], {
+  // node:child_process, not Bun.spawn: Pi loads extensions under Node.
+  return new Promise((resolve, reject) => {
+    const fail = (e: Error) => reject(new IsolationError("missing", `cannot run git in ${cwd}: ${e.message}`, cwd));
+    const proc = spawn("git", args, {
       cwd,
-      stdin: input ?? "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
+      stdio: [input ? "pipe" : "ignore", "pipe", "pipe"],
       env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" },
     });
-  } catch (e) {
-    throw new IsolationError("missing", `cannot run git in ${cwd}: ${(e as Error).message}`, cwd);
-  }
-  const [out, err, code] = await Promise.all([
-    new Response(proc.stdout).arrayBuffer(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { code, out: new Uint8Array(out), err: err.trim() };
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    proc.stdout!.on("data", (d: Buffer) => out.push(d));
+    proc.stderr!.on("data", (d: Buffer) => err.push(d));
+    proc.on("error", fail);
+    proc.on("close", (code) =>
+      resolve({ code: code ?? 1, out: new Uint8Array(Buffer.concat(out)), err: Buffer.concat(err).toString().trim() }));
+    if (input) {
+      proc.stdin!.on("error", () => {}); // git may exit before reading everything
+      proc.stdin!.end(input);
+    }
+  });
 }
 
 async function git(cwd: string, args: string[], input?: Uint8Array): Promise<Uint8Array> {
