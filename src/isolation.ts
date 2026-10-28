@@ -197,7 +197,10 @@ async function diverged(ws: Workspace, snap: string, paths: string[]): Promise<s
         have = `120000 ${sha}`;
       } else if (st.isFile()) {
         const sha = (await gitText(ws.repoRoot, ["hash-object", "--", p]));
-        have = `${st.mode & 0o111 ? "100755" : "100644"} ${sha}`;
+        // Windows has no exec bit (and may check symlinks out as plain files): trust the snapshot's mode there.
+        const wantMode = want.get(p)?.split(" ")[0];
+        const kept = process.platform === "win32" && (wantMode === "100755" || wantMode === "120000");
+        have = `${kept ? wantMode : st.mode & 0o111 ? "100755" : "100644"} ${sha}`;
       } else have = "other";
     } catch { have = undefined; } // absent (or parent is not a directory)
     if (have !== want.get(p)) bad.push(p);
