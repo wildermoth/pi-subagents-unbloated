@@ -89,7 +89,7 @@ describe("real pi + fake provider", () => {
     try {
       const ack = await p.conn.send({ type: "prompt", message: "hi" }, 20_000);
       expect(ack.success).toBe(true);
-      expect(ack.data.disposition).toBe("started");
+      expect(ack.data!.disposition).toBe("started");
       await p.waitFor("agent_settled");
       const types = p.events.map((e) => e.type);
       expect(types.indexOf("agent_end")).toBeGreaterThan(-1);

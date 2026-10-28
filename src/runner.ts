@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RpcConnection, RpcError, type ExitInfo, type RpcResponse } from "./protocol.ts";
+import { RpcConnection, RpcError, type ExitInfo, type JsonRecord, type RpcResponse } from "./protocol.ts";
 import type { Child, FailureKind, RunResult, RunSpec, Runner } from "./types.ts";
 
 export interface RunnerOptions {
@@ -176,9 +176,17 @@ function truncate(text: string, max: number): { text: string; truncated: boolean
   return { text: buf.subarray(0, cut).toString("utf8") + marker, truncated: true };
 }
 
-function assistantText(msg: any): string {
-  if (!Array.isArray(msg?.content)) return typeof msg?.content === "string" ? msg.content : "";
-  return msg.content.filter((b: any) => b?.type === "text" && typeof b.text === "string").map((b: any) => b.text).join("");
+/** Narrow an untrusted decoded value to an object, or undefined. */
+const asRecord = (v: unknown): JsonRecord | undefined => (v !== null && typeof v === "object" ? (v as JsonRecord) : undefined);
+
+function assistantText(msg: JsonRecord): string {
+  const { content } = msg;
+  if (!Array.isArray(content)) return typeof content === "string" ? content : "";
+  return content
+    .map(asRecord)
+    .filter((b): b is JsonRecord => b?.type === "text" && typeof b.text === "string")
+    .map((b) => b.text as string)
+    .join("");
 }
 
 export function createRunner(opts: RunnerOptions = {}): Runner {
@@ -196,7 +204,7 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
       let proc: ChildProcess | undefined;
       let acked = false;
       let settled = false;
-      let lastAssistant: any;
+      let lastAssistant: JsonRecord | undefined;
       let runTimer: ReturnType<typeof setTimeout> | undefined;
 
       const waitExit = async (ms: number): Promise<boolean> => {
@@ -262,15 +270,16 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
         decide({ status: "completed", text: t.text, truncated: t.truncated });
       };
 
-      const onEvent = (ev: Record<string, any>): void => {
+      const onEvent = (ev: JsonRecord): void => {
         switch (ev.type) {
           case "message_end":
-            if (ev.message?.role === "assistant") lastAssistant = ev.message;
+            if (asRecord(ev.message)?.role === "assistant") lastAssistant = ev.message as JsonRecord;
             break;
           case "agent_end":
             if (Array.isArray(ev.messages)) {
               for (let i = ev.messages.length - 1; i >= 0; i--) {
-                if (ev.messages[i]?.role === "assistant") { lastAssistant = ev.messages[i]; break; }
+                const m = asRecord(ev.messages[i]);
+                if (m?.role === "assistant") { lastAssistant = m; break; }
               }
             }
             break;
@@ -280,7 +289,7 @@ export function createRunner(opts: RunnerOptions = {}): Runner {
             break;
           case "extension_ui_request":
             // Policy: never block on UI. Deny dialogs; fire-and-forget kinds need no reply.
-            if (DIALOG_METHODS.has(ev.method) && typeof ev.id === "string") {
+            if (typeof ev.method === "string" && DIALOG_METHODS.has(ev.method) && typeof ev.id === "string") {
               conn?.sendNoReply({ type: "extension_ui_response", id: ev.id, cancelled: true });
             }
             break;

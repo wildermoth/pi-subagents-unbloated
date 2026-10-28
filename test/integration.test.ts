@@ -13,7 +13,7 @@ test.skipIf(process.env.PI_INTEGRATION !== "1")("real pi: get_state then orderly
   const c = new RpcConnection(child, { onEvent() {}, onProtocolError: (e) => errors.push(e) });
   const r = await c.send({ type: "get_state" }, 15_000);
   expect(r.success).toBe(true);
-  expect(typeof r.data.isStreaming).toBe("boolean");
+  expect(typeof r.data!.isStreaming).toBe("boolean");
   c.closeInput();
   const exit = await Promise.race([c.exited, Bun.sleep(10_000).then(() => "hung" as const)]);
   if (exit === "hung") child.kill("SIGKILL");

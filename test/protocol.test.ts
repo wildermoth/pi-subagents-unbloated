@@ -82,7 +82,7 @@ describe("RpcConnection", () => {
     const r = await c.send({ type: "get_state" }, 5000);
     expect(r.success).toBe(true);
     const p = await c.send({ type: "prompt", message: "hi" }, 5000);
-    expect(p.data.disposition).toBe("started");
+    expect(p.data!.disposition).toBe("started");
     c.closeInput();
     await c.exited;
     expect(events.map((e) => e.type)).toContain("agent_settled");

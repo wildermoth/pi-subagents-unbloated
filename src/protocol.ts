@@ -71,13 +71,16 @@ export class JsonlFramer {
   }
 }
 
+/** A decoded JSON object from the child; its fields are untrusted until narrowed. */
+export type JsonRecord = Record<string, unknown>;
+
 export interface RpcResponse {
   type: "response";
   id?: string;
   command?: string;
   success: boolean;
   error?: string;
-  data?: any;
+  data?: JsonRecord;
 }
 
 export interface ExitInfo {
@@ -88,7 +91,7 @@ export interface ExitInfo {
 }
 
 export interface RpcOptions {
-  onEvent(event: Record<string, any>): void;
+  onEvent(event: JsonRecord): void;
   /** Malformed record, overflow, or a throwing onEvent. Reported, never thrown. */
   onProtocolError(err: Error): void;
   /** Called once, before pending requests are rejected. */
@@ -197,31 +200,33 @@ export class RpcConnection {
   }
 
   private onLine(line: string): void {
-    let rec: any;
+    let rec: unknown;
     try {
       rec = JSON.parse(line);
     } catch (e) {
       this.opts.onProtocolError(new RpcError("protocol", `malformed JSON record: ${(e as Error).message}`));
       return;
     }
-    if (rec === null || typeof rec !== "object" || Array.isArray(rec) || typeof rec.type !== "string") {
+    if (rec === null || typeof rec !== "object" || Array.isArray(rec) || typeof (rec as JsonRecord).type !== "string") {
       this.opts.onProtocolError(new RpcError("protocol", "record is not an object with a string type"));
       return;
     }
-    if (rec.type === "response") {
-      const p = typeof rec.id === "string" ? this.pending.get(rec.id) : undefined;
-      if (p) {
-        this.pending.delete(rec.id);
+    const msg = rec as JsonRecord;
+    if (msg.type === "response") {
+      const id = msg.id;
+      const p = typeof id === "string" ? this.pending.get(id) : undefined;
+      if (p && typeof id === "string") {
+        this.pending.delete(id);
         clearTimeout(p.timer);
-        p.resolve(rec as RpcResponse);
-      } else if (rec.success === false) {
+        p.resolve(msg as unknown as RpcResponse);
+      } else if (msg.success === false) {
         // e.g. a parse-error response with no id: we sent something the child rejected
-        this.opts.onProtocolError(new RpcError("protocol", `unmatched error response: ${String(rec.error)}`));
+        this.opts.onProtocolError(new RpcError("protocol", `unmatched error response: ${String(msg.error)}`));
       }
       return;
     }
     try {
-      this.opts.onEvent(rec);
+      this.opts.onEvent(msg);
     } catch (e) {
       this.opts.onProtocolError(new RpcError("protocol", `event handler threw: ${(e as Error).message}`));
     }
