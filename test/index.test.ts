@@ -174,7 +174,7 @@ test("an agent without a tools line inherits the parent's active tools, minus su
   h.setActiveTools(["subagent"]);
   await run(h, cwd, { action: "start", agent: "free", task: "z" });
   await started(h, 3);
-  expect(h.ctls[2]!.spec.tools).toBeUndefined(); // nothing to inherit: Pi's default set
+  expect(h.ctls[2]!.spec.tools).toEqual([]); // no active tools remain after excluding subagent
 });
 
 test("start without an agent names the available agents in the error", async () => {
