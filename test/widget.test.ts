@@ -17,11 +17,12 @@ const theme = { fg: (_c: string, s: string) => s, bold: (s: string) => s };
 
 /** A UI stand-in that, like Pi, builds the widget component as soon as it is mounted. */
 function fakeUi() {
-  const log = { mounts: 0, clears: 0, renders: 0 };
+  const log = { mounts: 0, clears: 0, renders: 0, placement: "" };
   let mounted: { render(w: number): string[] } | undefined;
   const tui = { requestRender: () => void log.renders++ };
   const ui = {
-    setWidget(_key: string, content: unknown) {
+    setWidget(_key: string, content: unknown, options?: { placement?: string }) {
+      log.placement = options?.placement ?? "";
       if (content === undefined) log.clears++;
       else {
         log.mounts++;
@@ -42,7 +43,8 @@ test("mounts once, repaints on update, and clears when nothing is left", () => {
   live.bind(f.ui);
   live.update();
   expect(f.log.mounts).toBe(1);
-  expect(f.component().render(80)[1]).toContain("scout");
+  expect(f.component().render(80)[2]).toContain("scout");
+  expect(f.log.placement).toBe("belowEditor");
   const before = f.log.renders;
   live.update();
   expect(f.log.mounts).toBe(1); // not remounted
@@ -106,8 +108,8 @@ test("the selection and hint come from the view when drawing", () => {
   live = createWidget(() => [rec("running")], { selected: () => "j1", active: () => true });
   live.bind(f.ui);
   const lines = f.component().render(100);
-  expect(lines[1]).toMatch(/^└▸ /);
-  expect(lines.at(-1)).toContain("esc close");
+  expect(lines[2]).toStartWith("❯ ");
+  expect(lines[0]).toContain("esc return");
 });
 
 test("without a UI, updates do nothing", () => {

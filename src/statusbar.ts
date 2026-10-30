@@ -49,7 +49,9 @@ export interface RenderOptions {
   /** Show the key hints under the list (the list is active). */
   hint?: boolean;
   /** Cuts a styled line to the terminal width (ANSI and wide-character aware in production). */
-  fit(line: string, width: number): string;
+  fit(this: void, line: string, width: number): string;
+  /** Visible terminal columns, ignoring ANSI styling. */
+  measure?(this: void, line: string): number;
 }
 
 export function tokens(n: number): string {
@@ -94,47 +96,46 @@ const icon = (r: JobRecord, frame: number, s: Style): string =>
         ? s.error("✗")
         : s.dim("■");
 
-/** "↻5 · 5 tool uses · 33.8k token (62%) · 12.3s". Always all four, so a quiet agent reads as zeros, not as a missing feature. */
+/** Compact telemetry stays on the right; activity gets the remaining columns. */
 function stats(r: JobRecord, now: number, s: Style): string {
   const p = r.progress;
   const pct = p && r.contextWindow ? Math.round((p.tokens / r.contextWindow) * 100) : 0;
   const pctStyle = pct >= 85 ? s.error : pct >= 70 ? s.warn : s.dim;
   const context = isRunning(r) && pct ? s.dim(" (") + pctStyle(`${pct}%`) + s.dim(")") : "";
-  return [
-    s.dim(`↻ ${p?.turns ?? 0}`),
-    s.dim(`${p?.tools ?? 0} tool use${p?.tools === 1 ? "" : "s"}`),
-    s.dim(`${tokens(p?.tokens ?? 0)} token`) + context,
-    s.dim(elapsed((r.endedAt ?? now) - (r.startedAt ?? r.createdAt))),
-  ].join(s.dim(" · "));
+  return s.dim(`${elapsed((r.endedAt ?? now) - (r.startedAt ?? r.createdAt))} · ↓ ${tokens(p?.tokens ?? 0)} tokens`) + context;
 }
 
-/** A job's header line, and for running jobs a second line with what it is doing. */
-function row(r: JobRecord, { now, frame, style: s }: RenderOptions): { head: string; sub?: string } {
-  const failure = r.result?.status === "failed" ? ` ${s.error(`error: ${clip(r.result.failure.message, 60)}`)}` : "";
-  return {
-    head: `${icon(r, frame, s)} ${s.bold(r.agent)}  ${s.dim(clip(r.task, 60))} ${s.dim("·")} ${stats(r, now, s)}${failure}`,
-    sub: isRunning(r) ? s.dim(`⎿  ${activity(r.progress)}`) : undefined,
-  };
+/** A single row, with telemetry right-aligned without clipping it behind a long task. */
+function row(r: JobRecord, o: RenderOptions): string {
+  const { style: s, frame, now, width, fit } = o;
+  const measure = o.measure ?? ((line: string) => [...line].length);
+  const detail = isRunning(r)
+    ? activity(r.progress)
+    : r.result?.status === "failed"
+      ? `error: ${clip(r.result.failure.message, 120)}`
+      : clip(r.result?.text.trim() ? r.result.text : r.task, 120);
+  const prefix = `${r.id === o.selected ? s.accent("❯") : " "} ${icon(r, frame, s)} ${s.bold(r.agent)}  `;
+  const right = stats(r, now, s);
+  // On very narrow terminals preserve the agent identity instead of showing only telemetry.
+  if (measure(prefix) + measure(right) + 3 > width) return fit(prefix + s.dim(detail), width);
+  const left = prefix + fit(s.dim(detail), Math.max(0, width - measure(prefix) - measure(right) - 2));
+  return left + " ".repeat(Math.max(2, width - measure(left) - measure(right))) + right;
 }
 
 /** The jobs the cursor can move over: exactly the rows the widget draws. */
 export const selectable = (records: readonly JobRecord[]): JobRecord[] => select(records).shown.slice(0, MAX_ROWS);
 
-/** Tree-drawn lines, or undefined when there is nothing to show (clear the widget). */
+/** A compact strip below the editor, or undefined when there is nothing to show. */
 export function renderStatus(records: readonly JobRecord[], o: RenderOptions): string[] | undefined {
   const { shown, queued } = select(records);
   if (!shown.length && !queued) return undefined;
-  const rows = shown.slice(0, MAX_ROWS).map((r): { head: string; sub?: string; id?: string } => ({ ...row(r, o), id: r.id }));
+  const { style: s } = o;
+  const lines = [
+    s.dim(o.hint ? "  ↑/↓ select · enter actions · esc return" : `  ← ${shown.length + queued} agents · ↓ to manage`),
+    `  ${s.success("●")} ${s.bold("main")}`,
+    ...shown.slice(0, MAX_ROWS).map((r) => row(r, o)),
+  ];
   const more = [shown.length > MAX_ROWS && `+${shown.length - MAX_ROWS} more`, queued > 0 && `${queued} queued`].filter(Boolean).join(", ");
-  if (more) rows.push({ head: o.style.dim(more) });
-  const live = shown.some(isRunning) || queued > 0;
-  const lines = [`${live ? o.style.accent("●") : o.style.dim("○")} ${o.style.bold("Agents")}`];
-  rows.forEach(({ head, sub, id }, i) => {
-    const last = i === rows.length - 1;
-    const mark = id !== undefined && id === o.selected ? o.style.accent("▸") : "─";
-    lines.push(`${last ? "└" : "├"}${mark} ${head}`);
-    if (sub) lines.push(`${last ? "   " : "│  "}    ${sub}`);
-  });
-  if (o.hint) lines.push(o.style.dim("   ↑↓ select · enter actions · esc close"));
+  if (more) lines.push(s.dim(`  ${more}`));
   return lines.map((l) => o.fit(l, o.width));
 }

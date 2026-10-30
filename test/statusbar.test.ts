@@ -27,51 +27,34 @@ const tag = (n: string) => (s: string) => `<${n}>${s}</${n}>`;
 const tagged = { accent: tag("a"), dim: tag("d"), success: tag("s"), warn: tag("w"), error: tag("e"), bold: tag("b") };
 
 describe("renderStatus", () => {
-  test("nothing live, queued or unread clears the widget", () => {
+  test("clears when there are no active or unread jobs", () => {
     expect(renderStatus([], opts())).toBeUndefined();
-    expect(renderStatus([rec("1", "completed", { delivered: true, endedAt: 2000 }), rec("2", "interrupted")], opts())).toBeUndefined();
+    expect(renderStatus([rec("1", "completed", { delivered: true }), rec("2", "interrupted")], opts())).toBeUndefined();
   });
 
-  test("running rows show turns, tool uses, tokens with context use, elapsed time and what the agent is doing", () => {
+  test("shows main and one compact row per agent, with right-aligned telemetry", () => {
     const lines = renderStatus(
       [
-        rec("1", "running", {
-          contextWindow: 54_000,
-          progress: progress({ turns: 5, tools: 5, tokens: 33_800, active: ["edit", "edit"] }),
-        }),
-        rec("2", "running", { contextWindow: 150_000, progress: progress({ turns: 3, tools: 1, tokens: 12_400, active: ["grep"] }) }),
-        rec("q1", "queued"),
-        rec("q2", "queued"),
+        rec("1", "running", { contextWindow: 54_000, progress: progress({ tokens: 33_800, active: ["edit", "edit"] }) }),
+        rec("2", "running"),
       ],
       opts(),
-    );
-    expect(lines).toEqual([
-      "● Agents",
-      `├─ ${FRAMES[2]} agent-1  task 1 · ↻ 5 · 5 tool uses · 33.8k token (63%) · 12.3s`,
-      "│      ⎿  editing 2 files…",
-      `├─ ${FRAMES[2]} agent-2  task 2 · ↻ 3 · 1 tool use · 12.4k token (8%) · 12.3s`,
-      "│      ⎿  searching…",
-      "└─ 2 queued",
-    ]);
+    )!;
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toBe("  ← 2 agents · ↓ to manage");
+    expect(lines[1]).toBe("  ● main");
+    expect(lines[2]).toContain(`${FRAMES[2]} agent-1  editing 2 files…`);
+    expect(lines[2]).toEndWith("12.3s · ↓ 33.8k tokens (63%)");
+    expect(lines[3]).toContain("thinking…");
+    expect(lines[3]).toEndWith("12.3s · ↓ 0 tokens");
+    expect(lines[2]).toHaveLength(200);
+    expect(lines[3]).toHaveLength(200);
   });
 
-  test("a row without progress yet shows zeros and 'thinking…', never a missing field", () => {
-    expect(renderStatus([rec("1", "running")], opts())).toEqual([
-      "● Agents",
-      `└─ ${FRAMES[2]} agent-1  task 1 · ↻ 0 · 0 tool uses · 0 token · 12.3s`,
-      "       ⎿  thinking…",
-    ]);
-  });
-
-  test("finished rows keep their stats but drop the context percentage and the activity line", () => {
+  test("finished rows freeze time, show result or failure, and omit context percentage", () => {
     const lines = renderStatus(
       [
-        rec("1", "completed", {
-          endedAt: 4100,
-          contextWindow: 1000,
-          progress: progress({ turns: 4, tools: 7, tokens: 900 }),
-          result: done(),
-        }),
+        rec("1", "completed", { endedAt: 4100, contextWindow: 1000, progress: progress({ tokens: 900 }), result: done() }),
         rec("2", "failed", {
           endedAt: 2000,
           result: { status: "failed", text: "", truncated: false, failure: { kind: "exit", message: "Pi exited" } },
@@ -79,64 +62,58 @@ describe("renderStatus", () => {
         rec("3", "cancelled", { endedAt: 3000 }),
       ],
       opts(),
-    );
-    expect(lines).toEqual([
-      "○ Agents",
-      "├─ ✓ agent-1  task 1 · ↻ 4 · 7 tool uses · 900 token · 3.1s",
-      "├─ ✗ agent-2  task 2 · ↻ 0 · 0 tool uses · 0 token · 1.0s error: Pi exited",
-      "└─ ■ agent-3  task 3 · ↻ 0 · 0 tool uses · 0 token · 2.0s",
-    ]);
+    )!;
+    expect(lines[2]).toContain("✓ agent-1  all done");
+    expect(lines[2]).toEndWith("3.1s · ↓ 900 tokens");
+    expect(lines[2]).not.toContain("%");
+    expect(lines[3]).toContain("✗ agent-2  error: Pi exited");
+    expect(lines[4]).toContain("■ agent-3");
   });
 
-  test("context use is dim below 70%, warning from 70%, error from 85%", () => {
-    const at = (t: number) =>
-      renderStatus([rec("1", "running", { contextWindow: 100, progress: progress({ tokens: t }) })], opts({ style: tagged }))![1]!;
+  test("context use retains warning and error thresholds", () => {
+    const at = (n: number) =>
+      renderStatus([rec("1", "running", { contextWindow: 100, progress: progress({ tokens: n }) })], opts({ style: tagged }))![2]!;
     expect(at(69)).toContain("<d>69%</d>");
     expect(at(70)).toContain("<w>70%</w>");
     expect(at(85)).toContain("<e>85%</e>");
+    expect(renderStatus([rec("1", "running", { progress: progress({ tokens: 5000 }) })], opts())![2]).not.toContain("%");
   });
 
-  test("no context percentage without a known context window", () => {
-    const line = renderStatus([rec("1", "running", { progress: progress({ tokens: 5000 }) })], opts())![1]!;
-    expect(line).toContain("5.0k token ·");
-    expect(line).not.toContain("%");
-  });
-
-  test("the last row closes the tree with no rail on its activity line", () => {
-    const lines = renderStatus([rec("1", "running", { progress: progress({ active: ["bash"] }) })], opts())!;
-    expect(lines.at(-1)).toBe("       ⎿  running…");
-  });
-
-  test("the spinner advances with the frame", () => {
-    const at = (frame: number) => renderStatus([rec("1", "running")], opts({ frame }))![1]!;
+  test("spinner advances and wraps", () => {
+    const at = (frame: number) => renderStatus([rec("1", "running")], opts({ frame }))![2]!;
     expect(at(0)).not.toBe(at(1));
     expect(at(FRAMES.length)).toBe(at(0));
   });
 
-  test("caps at five rows, then counts the hidden rest and the queued", () => {
-    const records = [...[1, 2, 3, 4, 5, 6, 7].map((i) => rec(String(i), "running")), rec("q1", "queued"), rec("q2", "queued")];
+  test("caps visible agents and includes overflow and queued counts", () => {
+    const records = [...Array.from({ length: 7 }, (_, i) => rec(String(i), "running")), rec("q", "queued")];
     const lines = renderStatus(records, opts())!;
+    expect(lines[0]).toContain("8 agents");
     expect(lines.filter((l) => l.includes("agent-"))).toHaveLength(5);
-    expect(lines.at(-1)).toBe("└─ +2 more, 2 queued");
+    expect(lines.at(-1)).toBe("  +2 more, 1 queued");
+    expect(renderStatus([rec("q", "queued")], opts())!.at(-1)).toBe("  1 queued");
   });
 
-  test("the selected row gets an arrow in place of its second dash, and an active list shows its key hints", () => {
-    const records = [rec("1", "running"), rec("2", "running")];
-    const lines = renderStatus(records, opts({ selected: "2", hint: true, style: tagged }))!;
-    expect(lines[1]).toMatch(/^├─ /); // the rail is untouched on rows that are not selected
-    expect(lines[3]).toMatch(/^└<a>▸<\/a> /);
-    expect(lines.at(-1)).toContain("↑↓ select · enter actions · esc close");
-    const plainLines = renderStatus(records, opts())!;
-    expect(plainLines.some((l) => l.includes("▸") || l.includes("esc close"))).toBe(false);
+  test("selection highlights only its row and replaces the passive hints", () => {
+    const lines = renderStatus([rec("1", "running"), rec("2", "running")], opts({ selected: "2", hint: true }))!;
+    expect(lines[0]).toBe("  ↑/↓ select · enter actions · esc return");
+    expect(lines[2]).toStartWith("  ");
+    expect(lines[3]).toStartWith("❯ ");
   });
 
-  test("only queued jobs still show a summary row", () => {
-    expect(renderStatus([rec("1", "queued")], opts())).toEqual(["● Agents", "└─ 1 queued"]);
+  test("long activity cannot push telemetry off the right edge", () => {
+    const lines = renderStatus([rec("1", "running", { progress: progress({ text: "x".repeat(300) }) })], opts({ width: 60 }))!;
+    expect(lines[2]).toHaveLength(60);
+    expect(lines[2]).toEndWith("12.3s · ↓ 0 tokens");
+    const narrow = renderStatus([rec("1", "running")], opts({ width: 20 }))!;
+    expect(narrow.every((l) => l.length <= 20)).toBe(true);
+    expect(narrow[2]).toContain("agent-1");
   });
 
-  test("every line is fitted to the width", () => {
-    const lines = renderStatus([rec("1", "running", { progress: progress({ text: "x".repeat(300) }) })], opts({ width: 20 }))!;
-    expect(lines.every((l) => l.length <= 20)).toBe(true);
+  test("alignment uses terminal columns, not ANSI string length", () => {
+    const measure = (s: string) => [...s.replace(/<[^>]*>/g, "")].length;
+    const lines = renderStatus([rec("1", "running")], opts({ style: tagged, width: 100, measure, fit: (s) => s }))!;
+    expect(measure(lines[2]!)).toBe(100);
   });
 });
 

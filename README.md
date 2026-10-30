@@ -52,26 +52,25 @@ Concurrency is limited per backend: 6 child processes and 50 in-process agents a
 
 ### Status widget
 
-In the terminal UI a widget above the editor shows running jobs and finished jobs you have not read yet:
+In the terminal UI a compact strip below the editor shows running jobs and finished jobs the model has not read yet:
 
 ```text
-● Agents
-├─ ⠹ researcher  Refactor auth module · ↻ 5 · 5 tool uses · 33.8k token (62%) · 12.3s
-│      ⎿  editing 2 files…
-├─ ⠹ scout  Find auth files · ↻ 3 · 3 tool uses · 12.4k token (8%) · 4.1s
-│      ⎿  searching…
-├─ ✓ writer  Draft the notes · ↻ 4 · 7 tool uses · 21.0k token · 18.0s
-└─ 2 queued
+  ← 3 agents · ↓ to manage
+  ● main
+  ⠹ researcher  editing 2 files…                       12.3s · ↓ 33.8k tokens (62%)
+  ⠹ scout  searching…                                  4.1s · ↓ 12.4k tokens (8%)
+  ✓ writer  Drafted the notes                           18.0s · ↓ 21.0k tokens
 ```
 
-- **Row:** spinner, agent, task, then turns (`↻ n`, counted as each turn starts), tool calls, tokens and elapsed time. All four always show, so a quiet agent reads as zeros. Finished rows show `✓` (done), `✗` (failed, with the error) or `■` (cancelled).
-- **Live counts:** they move while a message streams in. A tool call counts as soon as it begins streaming, before it runs. Tokens are the context size at the last finished message plus an estimate of what has streamed since (about 4 characters per token); when the message ends, the provider's own figure replaces the estimate, so the number can step down slightly.
-- **Context use:** the percentage is that token figure over the model's context window (dim, then yellow from 70%, red from 85%). It shows while the job runs, and only when the model is known.
-- **Activity line:** the tools running right now (`reading`, `editing 2 files`, `searching the web`), otherwise the end of the text it is writing, otherwise `thinking…`.
-- **Overflow:** at most 5 jobs are listed. The rest collapse into a final `+N more, M queued` row, or `M queued` alone.
-- **Lifetime:** a finished job leaves the widget once its result has been delivered to the model. The widget clears when nothing is left and only animates while a job is running.
-- **Keyboard:** press **Down** at an empty prompt to move a cursor (`▸`) onto the agents. Up and Down move it, **Enter** opens a menu for the selected agent, and **Esc** closes the list. A running agent offers *Steer* (type a message to redirect it), *Cancel* and *Model and thinking* (see below). A finished one offers *Show result* and *Model and thinking*. Esc is consumed while the list is open, so it never cancels Pi's current turn; with the list closed, Esc is Pi's again. The list does nothing while you are typing or while one of Pi's own dialogs has the keyboard.
-- It costs no model context, is not persisted, and is skipped outside the terminal UI. Both the child-process and in-process backends feed it from the same events.
+- **Rows:** one line per agent, with current activity on the left and elapsed time plus tokens aligned to the right. Narrow terminals keep the agent name and clip activity; telemetry is omitted when it cannot fit beside the name. Finished rows show the result summary or failure.
+- **Live counts:** tokens are the context size at the last finished message plus an estimate of streamed text (about 4 characters per token), replaced by the provider's figure when the message ends. These are context tokens, not cumulative billing totals.
+- **Context use:** the percentage is tokens over the model's context window, dim below 70%, yellow from 70%, red from 85%. It appears only for running jobs with a known context window.
+- **Activity:** tools running now (`reading`, `editing 2 files`), otherwise the end of the latest text, otherwise `thinking…`.
+- **Overflow and lifetime:** at most 5 agents appear, followed by counts of hidden and queued jobs. Delivered results leave the strip. It clears when nothing is active or unread, and animates only while an agent runs. The `main` row identifies the current conversation, not another child job.
+- **Down** at an empty prompt selects the first visible agent. Up and Down move the cursor, **Enter** opens actions, and **Esc** returns to typing. Running agents offer *Steer*, *Cancel*, and *Model and thinking*; finished agents offer *Show result* and *Model and thinking*.
+- **Left** at an empty prompt opens the agent manager, grouped by state, including delivered results from the current session. Up and Down select, Enter opens actions, and Esc returns to the conversation. This is a manager for this extension's jobs, not a cross-session browser.
+- Arrow shortcuts leave typed text and Pi dialogs alone. Esc is consumed while navigating agents so it does not cancel Pi's turn.
+- The UI costs no model context, is not persisted, and is skipped outside terminal mode. Pi's built-in footer remains unchanged. Both execution backends use the same display.
 
 ### Worktree isolation
 

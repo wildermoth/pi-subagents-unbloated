@@ -1,4 +1,4 @@
-/** Mounts the job list above Pi's editor and keeps it fresh: re-renders on change, animates only while something runs. */
+/** Mounts the job list below Pi's editor and keeps it fresh: re-renders on change, animates only while something runs. */
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type { JobRecord } from "./jobs.ts";
 import { renderStatus, select, type Style } from "./statusbar.ts";
@@ -17,6 +17,7 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
   let tui: { requestRender(): void; focusedComponent?: unknown } | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   let fit: ((line: string, width: number) => string) | undefined;
+  let measure: ((line: string) => number) | undefined;
   let mounted = false; // setWidget may call its factory later, so track mounting here, not via tui
   let frame = 0;
 
@@ -59,13 +60,14 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
                   width,
                   style,
                   fit: fit ?? ((l) => l),
+                  measure,
                   selected: view?.selected(),
                   hint: view?.active(),
                 }) ?? [],
               invalidate: () => {},
             };
           },
-          { placement: "aboveEditor" },
+          { placement: "belowEditor" },
         );
       }
       tui?.requestRender();
@@ -95,6 +97,7 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
         // Pi's width helper understands ANSI and wide characters; load it once, only when there is a UI.
         void import("@earendil-works/pi-tui").then((m) => {
           fit = (line, width) => m.truncateToWidth(line, width);
+          measure = m.visibleWidth;
           tui?.requestRender();
         });
       }
