@@ -299,8 +299,8 @@ test("manager scrolls long history while retaining section and key hints", async
   const lines = t.manager()!.render(100);
   expect(lines.length).toBeLessThanOrEqual(24);
   expect(lines.join("\n")).toContain("> agent-39");
-  expect(lines).toContain("Completed");
-  expect(lines.at(-1)).toContain("esc close");
+  expect(lines.some((line) => line.trim() === "Completed")).toBe(true);
+  expect(lines.at(-1)).toContain("esc return");
   t.manager()!.handleInput(ESC);
   await flush();
 });
@@ -335,4 +335,16 @@ test("queued manager entries offer cancellation rather than a result", async () 
   await flush();
   expect(t.asked[0]!.options).toEqual(["Cancel", "Model and thinking", "Back"]);
   expect(t.calls.cancel).toEqual(["queued"]);
+});
+
+test("manager fills the screen and Right returns to chat", async () => {
+  const t = await setup([job("1", "running")]);
+  t.press(LEFT);
+  await flush();
+  const lines = t.manager()!.render(80);
+  expect(lines).toHaveLength(24);
+  expect(lines.every((line) => line.length === 80)).toBe(true);
+  t.manager()!.handleInput("\x1b[C");
+  await flush();
+  expect(t.manager()).toBeUndefined();
 });

@@ -103,84 +103,92 @@ export function createAgentList(o: AgentListOptions) {
     try {
       const { truncateToWidth, visibleWidth } = await import("@earendil-works/pi-tui");
       if (ui !== u) return;
-      const picked = await u.custom<JobRecord | undefined>((tui, theme, _bindings, done) => {
-        let selected: string | undefined;
-        let cursor = 0;
-        let scroll = 0;
-        const groups = () => {
-          const records = o.records();
-          return [
-            { title: "Working", jobs: records.filter(isLive) },
-            { title: "Queued", jobs: records.filter((r) => r.state === "queued") },
-            { title: "Needs attention", jobs: records.filter((r) => r.state === "failed" || r.state === "interrupted") },
-            { title: "Completed", jobs: records.filter((r) => r.state === "completed" || r.state === "cancelled") },
-          ];
-        };
-        const sync = () => {
-          const jobs = groups().flatMap((group) => group.jobs);
-          const at = jobs.findIndex((r) => r.id === selected);
-          cursor = Math.max(0, Math.min(jobs.length - 1, at >= 0 ? at : cursor));
-          selected = jobs[cursor]?.id;
-          return jobs;
-        };
-        closeManager = () => done(undefined);
-        timer = setInterval(() => tui.requestRender(), 100);
-        timer.unref?.();
-        const renderRow = (r: JobRecord, width: number): string => {
-          const mark = r.id === selected ? ">" : " ";
-          const summary = isLive(r)
-            ? activity(r.progress)
-            : r.result?.status === "failed"
-              ? r.result.failure.message
-              : (r.result?.text ?? r.task);
-          const left = `${mark} ${r.agent} (${r.state})  ${summary}`.replace(/\s+/g, " ");
-          const stats = `${elapsed((r.endedAt ?? Date.now()) - (r.startedAt ?? r.createdAt))} · ${tokens(r.progress?.tokens ?? 0)} tokens`;
-          const right = truncateToWidth(stats, width);
-          const room = Math.max(0, width - visibleWidth(right) - 2);
-          const label = truncateToWidth(left, room);
-          return room > 0 ? label + " ".repeat(Math.max(2, width - visibleWidth(label) - visibleWidth(right))) + right : right;
-        };
-        return {
-          render(width) {
-            sync();
-            const entries: { text: string; id?: string; heading?: string }[] = [];
-            for (const group of groups()) {
-              if (!group.jobs.length) continue;
-              entries.push({ text: theme.fg("accent", group.title), heading: group.title });
-              for (const r of group.jobs) {
-                entries.push({ text: renderRow(r, width), id: r.id });
+      const picked = await u.custom<JobRecord | undefined>(
+        (tui, theme, _bindings, done) => {
+          let selected: string | undefined;
+          let cursor = 0;
+          let scroll = 0;
+          const groups = () => {
+            const records = o.records();
+            return [
+              { title: "Working", jobs: records.filter(isLive) },
+              { title: "Queued", jobs: records.filter((r) => r.state === "queued") },
+              { title: "Needs attention", jobs: records.filter((r) => r.state === "failed" || r.state === "interrupted") },
+              { title: "Completed", jobs: records.filter((r) => r.state === "completed" || r.state === "cancelled") },
+            ];
+          };
+          const sync = () => {
+            const jobs = groups().flatMap((group) => group.jobs);
+            const at = jobs.findIndex((r) => r.id === selected);
+            cursor = Math.max(0, Math.min(jobs.length - 1, at >= 0 ? at : cursor));
+            selected = jobs[cursor]?.id;
+            return jobs;
+          };
+          closeManager = () => done(undefined);
+          timer = setInterval(() => tui.requestRender(), 100);
+          timer.unref?.();
+          const renderRow = (r: JobRecord, width: number): string => {
+            const mark = r.id === selected ? ">" : " ";
+            const summary = isLive(r)
+              ? activity(r.progress)
+              : r.result?.status === "failed"
+                ? r.result.failure.message
+                : (r.result?.text ?? r.task);
+            const left = `${mark} ${r.agent} (${r.state})  ${summary}`.replace(/\s+/g, " ");
+            const stats = `${elapsed((r.endedAt ?? Date.now()) - (r.startedAt ?? r.createdAt))} · ${tokens(r.progress?.tokens ?? 0)} tokens`;
+            const right = truncateToWidth(stats, width);
+            const room = Math.max(0, width - visibleWidth(right) - 2);
+            const label = truncateToWidth(left, room);
+            return room > 0 ? label + " ".repeat(Math.max(2, width - visibleWidth(label) - visibleWidth(right))) + right : right;
+          };
+          return {
+            render(width) {
+              sync();
+              const entries: { text: string; id?: string; heading?: string }[] = [];
+              for (const group of groups()) {
+                if (!group.jobs.length) continue;
+                entries.push({ text: theme.fg("accent", group.title), heading: group.title });
+                for (const r of group.jobs) {
+                  entries.push({ text: renderRow(r, width), id: r.id });
+                }
               }
-            }
-            // Reserve title, current section heading and key hints. Keep the cursor inside the viewport.
-            const capacity = Math.max(1, (tui.terminal?.rows ?? 24) - 6);
-            const at = entries.findIndex((entry) => entry.id === selected);
-            if (at < scroll) scroll = Math.max(0, at);
-            if (at >= scroll + capacity) scroll = at - capacity + 1;
-            scroll = Math.min(scroll, Math.max(0, entries.length - capacity));
-            const section = entries.slice(0, scroll + 1).findLast((entry) => entry.heading)?.heading;
-            const lines = [theme.bold("Agents")];
-            if (scroll > 0 && section && !entries[scroll]?.heading) lines.push(theme.fg("accent", section));
-            lines.push(...entries.slice(scroll, scroll + capacity).map((entry) => entry.text));
-            if (!entries.length) lines.push(theme.fg("dim", "No agents in this session"));
-            lines.push(theme.fg("dim", "↑↓ select · enter actions · esc close"));
-            return lines;
-          },
-          handleInput(data) {
-            if (k.isKeyRelease(data)) return;
-            const jobs = sync();
-            if (k.matchesKey(data, "escape")) done(undefined);
-            else if (k.matchesKey(data, "enter")) done(jobs[cursor]);
-            else if (k.matchesKey(data, "up") || k.matchesKey(data, "down")) {
-              cursor = Math.max(0, Math.min(jobs.length - 1, cursor + (k.matchesKey(data, "up") ? -1 : 1)));
-              selected = jobs[cursor]?.id;
-              tui.requestRender();
-            }
-          },
-          invalidate() {
-            // Every render reads the current records, so there is no cache to invalidate.
-          },
-        };
-      });
+              // Reserve title, current section heading and key hints. Keep the cursor inside the viewport.
+              const height = Math.max(1, tui.terminal?.rows ?? 24);
+              const capacity = Math.max(1, height - 7);
+              const at = entries.findIndex((entry) => entry.id === selected);
+              if (at < scroll) scroll = Math.max(0, at);
+              if (at >= scroll + capacity) scroll = at - capacity + 1;
+              scroll = Math.min(scroll, Math.max(0, entries.length - capacity));
+              const section = entries.slice(0, scroll + 1).findLast((entry) => entry.heading)?.heading;
+              const lines = [theme.bold("Agents"), theme.fg("dim", "Conversation in background · right or esc returns"), ""];
+              if (scroll > 0 && section && !entries[scroll]?.heading) lines.push(theme.fg("accent", section));
+              lines.push(...entries.slice(scroll, scroll + capacity).map((entry) => entry.text));
+              if (!entries.length) lines.push(theme.fg("dim", "No agents in this session"));
+              while (lines.length < height - 1) lines.push("");
+              lines.push(theme.fg("dim", "↑↓ select · enter actions · →/esc return"));
+              return lines.slice(0, height).map((line) => {
+                const fitted = truncateToWidth(line, width);
+                return fitted + " ".repeat(Math.max(0, width - visibleWidth(fitted)));
+              });
+            },
+            handleInput(data) {
+              if (k.isKeyRelease(data)) return;
+              const jobs = sync();
+              if (k.matchesKey(data, "escape") || k.matchesKey(data, "right")) done(undefined);
+              else if (k.matchesKey(data, "enter")) done(jobs[cursor]);
+              else if (k.matchesKey(data, "up") || k.matchesKey(data, "down")) {
+                cursor = Math.max(0, Math.min(jobs.length - 1, cursor + (k.matchesKey(data, "up") ? -1 : 1)));
+                selected = jobs[cursor]?.id;
+                tui.requestRender();
+              }
+            },
+            invalidate() {
+              // Every render reads the current records, so there is no cache to invalidate.
+            },
+          };
+        },
+        { overlay: true, overlayOptions: { anchor: "top-left", width: "100%", maxHeight: "100%" } },
+      );
       clearInterval(timer);
       closeManager = undefined;
       if (picked && ui === u) {
