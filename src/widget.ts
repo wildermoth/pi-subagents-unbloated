@@ -10,6 +10,7 @@ const TICK_MS = 100;
 export interface WidgetView {
   selected(): string | undefined;
   active(): boolean;
+  hasHistory?(): boolean;
 }
 
 export function createWidget(records: () => readonly JobRecord[], view?: WidgetView) {
@@ -62,8 +63,9 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
   function update(): void {
     if (!ui) return;
     try {
-      const { shown, queued, running } = select(records());
-      if (!shown.length && !queued) {
+      const current = records();
+      const { shown, queued, running } = select(current);
+      if (!shown.length && !queued && !view?.hasHistory?.()) {
         stop();
         resetCursor();
         if (mounted) ui.setWidget(KEY, undefined);

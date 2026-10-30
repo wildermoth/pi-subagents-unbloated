@@ -330,3 +330,35 @@ test("interrupted jobs remain visible after repeated restarts without repeated n
   await second.handlers.session_start!({}, { ...second.ctx("/tmp"), sessionManager: { getBranch: () => [] } });
   expect(txt(await run(second, "/tmp", { action: "list" }))).toBe("no jobs");
 });
+
+test("reopening restores completed and interrupted history in list, status and manager without redelivery", async () => {
+  const cwd = await project();
+  const first = harness();
+  await first.handlers.session_start!({}, first.ctx(cwd));
+  const completed = txt(await run(first, cwd, { action: "start", agent: "scout", task: "completed task" })).split(" ")[1]!;
+  first.ctls[0]!.finish(ok("answer"));
+  await tick();
+  await run(first, cwd, { action: "start", agent: "scout", task: "interrupted task" });
+  const branch = first.entries.map((e) => ({ type: "custom", customType: e.type, data: e.data }));
+  await first.handlers.session_shutdown!({}, first.ctx(cwd));
+  const reopened = harness(branch);
+  await reopened.handlers.session_start!({}, reopened.ctx(cwd));
+  const before = reopened.sent.length;
+  const listing = txt(await run(reopened, cwd, { action: "list" }));
+  expect(listing).toContain(`${completed} scout completed`);
+  expect(listing).toContain("scout interrupted: interrupted task");
+  expect(txt(await run(reopened, cwd, { action: "status", id: completed }))).toContain("scout completed");
+  expect(reopened.sent.length).toBe(before);
+  await tick();
+  expect(reopened.widgetLines()).toEqual([]);
+  expect(reopened.keyHandlers[0]!("\x1b[D")).toEqual({ consume: true });
+  await tick();
+  const manager = reopened.manager();
+  expect(manager).toBeDefined();
+  const screen = manager!.render(120).join("\n");
+  expect(screen).toContain("scout (completed) completed task");
+  expect(screen).toContain("scout (interrupted) interrupted task");
+  manager!.handleInput("\x1b[C");
+  await tick();
+  await reopened.handlers.session_shutdown!({}, reopened.ctx(cwd));
+});

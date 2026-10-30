@@ -68,9 +68,9 @@ In the terminal UI a compact strip below the editor shows running jobs and finis
 - **Activity:** tools running now (`reading`, `editing 2 files`), otherwise the end of the latest text, otherwise `thinking…`.
 - **Overflow and lifetime:** at most 5 agents appear, followed by counts of hidden and queued jobs. Delivered results leave the strip. It clears when nothing is active or unread, and animates only while an agent runs. The `main` row identifies the current conversation, not another child job.
 - **Down** at an empty prompt selects the first visible agent. Up and Down move the cursor, **Enter** opens actions, and **Esc** returns to typing. Running agents offer *Steer*, *Cancel*, and *Model and thinking*; finished agents offer *Show result* and *Model and thinking*.
-- **Left** at an empty prompt opens the agent manager, grouped by state, including delivered results from the current session. Up and Down select, Enter opens actions, and Right or Esc returns to the conversation. This is a manager for this extension's jobs, not a cross-session browser.
+- **Left** at an empty prompt opens the agent manager, grouped by state, including job history from earlier openings of the same session. Up and Down select, Enter opens actions, and Right or Esc returns to the conversation. This is a manager for this extension's jobs, not a cross-session browser. Past entries retain their status and task, not their full output.
 - Arrow shortcuts leave typed text and Pi dialogs alone. Esc is consumed while navigating agents so it does not cancel Pi's turn.
-- The UI costs no model context, is not persisted, and is skipped outside terminal mode. Pi's built-in footer remains unchanged. Both execution backends use the same display.
+- The UI costs no model context and is skipped outside terminal mode; job status and task are persisted with the Pi session. Pi's built-in footer remains unchanged. Both execution backends use the same display.
 
 ### Worktree isolation
 

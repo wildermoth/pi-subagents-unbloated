@@ -52,11 +52,24 @@ export function harness(branch: unknown[] = [], failSend = { on: false }, inject
   // Like Pi, build the widget component on mount; tests read what it would draw right now.
   let mounted: { render(w: number): string[] } | undefined;
   const keyHandlers: ((data: string) => { consume?: boolean } | undefined)[] = [];
+  let manager: { render(width: number): string[]; handleInput(data: string): void } | undefined;
   const ui = {
     onTerminalInput: (h: (data: string) => { consume?: boolean } | undefined) => {
       keyHandlers.push(h);
       return () => void keyHandlers.splice(keyHandlers.indexOf(h), 1);
     },
+    custom: (factory: (...args: any[]) => typeof manager) =>
+      new Promise((resolve) => {
+        manager = factory(
+          { requestRender() {}, terminal: { rows: 24 } },
+          { fg: (_c: string, s: string) => s, bold: (s: string) => s },
+          {},
+          (value: unknown) => {
+            manager = undefined;
+            resolve(value);
+          },
+        );
+      }),
     getEditorText: () => "",
     setWidget: (_key: string, content: unknown) => {
       mounted =
@@ -86,6 +99,7 @@ export function harness(branch: unknown[] = [], failSend = { on: false }, inject
     ctx,
     keyHandlers,
     widgetLines: () => mounted?.render(120),
+    manager: () => manager,
     setIdle: (v: boolean) => (idle = v),
     setActiveTools: (t: string[]) => (active = t),
   };

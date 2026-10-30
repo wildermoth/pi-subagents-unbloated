@@ -30,7 +30,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   let ctx: ExtensionContext | undefined;
   let state: { jobs: Jobs; inbox: Inbox } | undefined;
   let pending: ReturnType<typeof build> | undefined; // parallel first calls must share one state
-  let interrupted: JobRecord[] = [];
+  let history: JobRecord[] = [];
   const workspaces = new Map<string, Workspace>(); // job id -> isolated worktree, kept until apply or discard
 
   let agentSection: Promise<string> | undefined; // cached for the session; reset at session_start
@@ -41,7 +41,11 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     widget.bind(ui);
     list.bind(ui).catch(() => {}); // keyboard control is a convenience; never let it break a session
   };
-  const records = () => state?.jobs.list() ?? [];
+  const records = () => {
+    const live = state?.jobs.list() ?? [];
+    const liveIds = new Set(live.map((record) => record.id));
+    return [...history.filter((record) => !liveIds.has(record.id)), ...live];
+  };
   const list = createAgentList({
     records,
     redraw: () => widget.update(),
@@ -62,7 +66,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
       await configureAgent(ctx, [def]);
     },
   });
-  const widget = createWidget(records, { selected: list.selected, active: list.active });
+  const widget = createWidget(records, { selected: list.selected, active: list.active, hasHistory: () => history.length > 0 });
   let waking = false; // a wake is in flight; sendMessage defers inside agent_settled, so isIdle() stays true meanwhile
   let startingJob = false;
 
@@ -244,12 +248,12 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
         return text(out);
       }
       case "list": {
-        const all = [...interrupted, ...jobs.list()];
+        const all = records();
         const out = all.map((r) => line(r) + (workspaces.has(r.id) ? " [worktree]" : "")).join("\n") || "no jobs";
         return text(all.some((r) => !isDone(r) && r.state !== "cancelled" && r.state !== "interrupted") ? `${out}\n${WAIT_HINT}` : out);
       }
       case "status": {
-        const r = jobs.get(p.id!) ?? interrupted.find((j) => j.id === p.id);
+        const r = jobs.get(p.id!) ?? history.find((j) => j.id === p.id);
         if (!r) throw new Error(`unknown job ${p.id}`);
         const done = inbox.take(r.id); // reading output consumes it, so no later wakeup repeats it
         return text(
@@ -320,8 +324,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   pi.registerCommand("subagents", {
     description: "Show subagent jobs",
     handler: (_args, c) => {
-      const jobs = state?.jobs.list() ?? [];
-      c.ui.notify([...interrupted, ...jobs].map(line).join("\n") || "no jobs", "info");
+      c.ui.notify(records().map(line).join("\n") || "no jobs", "info");
       return Promise.resolve();
     },
   });
@@ -349,10 +352,16 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     workspaces.clear();
     for (const [id, ws] of restored) workspaces.set(id, ws);
     await surfaceUnread(unread);
-    interrupted = [];
-    if (!seen.length) return;
+    history = [];
+    if (!seen.length) {
+      widget.update();
+      return;
+    }
     const { restoreInterrupted } = await import("./jobs.ts");
-    interrupted = restoreInterrupted(seen).filter((r) => r.state === "interrupted");
+    // Metadata is history, not the live inbox: never redeliver a result on recovery.
+    history = restoreInterrupted(seen).map((record) => ({ ...record, delivered: true }));
+    widget.update();
+    const interrupted = history.filter((r) => r.state === "interrupted");
     const reported = new Set(seen.filter((r) => r.state === "interrupted").map((r) => r.id));
     const fresh = interrupted.filter((r) => !reported.has(r.id));
     for (const r of fresh) pi.appendEntry(JOB_ENTRY, r);

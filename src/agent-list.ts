@@ -64,7 +64,7 @@ export function createAgentList(o: AgentListOptions) {
       a.Cancel = async () => void (await o.cancel(r.id).catch(note));
     } else if (r.state === "queued") {
       a.Cancel = async () => void (await o.cancel(r.id).catch(note));
-    } else {
+    } else if (r.result) {
       a["Show result"] = async () => {
         const res = r.result;
         await u.editor(
