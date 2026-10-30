@@ -134,8 +134,12 @@ export function createAgentList(o: AgentListOptions) {
                 ? r.result.failure.message
                 : clip(r.result?.text ?? r.task, 120);
             const left = `${mark} ${r.agent} (${r.state})  ${summary}`.replace(/\s+/g, " ");
-            const stats = `${elapsed((r.endedAt ?? Date.now()) - (r.startedAt ?? r.createdAt))} · ${tokens(r.progress?.tokens ?? 0)} tokens`;
-            const right = truncateToWidth(stats, width);
+            const end = r.endedAt ?? (isLive(r) || r.state === "queued" ? Date.now() : undefined);
+            const parts: string[] = [];
+            if (end !== undefined) parts.push(elapsed(end - (r.startedAt ?? r.createdAt)));
+            if (r.progress || isLive(r)) parts.push(`${tokens(r.progress?.tokens ?? 0)} tokens`);
+            const right = truncateToWidth(parts.join(" · "), width);
+            if (!right) return truncateToWidth(left, width);
             const room = Math.max(0, width - visibleWidth(right) - 2);
             const label = truncateToWidth(left, room);
             return room > 0 ? label + " ".repeat(Math.max(2, width - visibleWidth(label) - visibleWidth(right))) + right : right;

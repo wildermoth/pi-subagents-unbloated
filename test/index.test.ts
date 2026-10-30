@@ -358,6 +358,7 @@ test("reopening restores completed and interrupted history in list, status and m
   const screen = manager!.render(120).join("\n");
   expect(screen).toContain("scout (completed) completed task");
   expect(screen).toContain("scout (interrupted) interrupted task");
+  expect(screen).not.toContain("tokens");
   manager!.handleInput("\x1b[C");
   await tick();
   await reopened.handlers.session_shutdown!({}, reopened.ctx(cwd));
