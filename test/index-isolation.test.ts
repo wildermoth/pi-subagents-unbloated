@@ -108,6 +108,29 @@ test("apply conflict changes nothing and keeps the worktree", async () => {
   expect(await readFile(join(wt, "a.txt"), "utf8")).toBe("agent\n");
 });
 
+test("successful apply keeps the worktree available when cleanup fails", async () => {
+  const cwd = await repo();
+  const h = harness();
+  const id = await start(h, cwd, { isolate: true });
+  await started(h);
+  const wt = h.ctls[0]!.spec.cwd;
+  await writeFile(join(wt, "a.txt"), "agent\n");
+  h.ctls[0]!.finish(ok("done"));
+  await tick();
+  await sh(cwd, "worktree", "lock", wt);
+
+  const result = txt(await run(h, cwd, { action: "apply", id }));
+  expect(result).toContain("applied");
+  expect(result).toContain("cleanup incomplete");
+  expect(result).toContain(`discard ${id}`);
+  expect(await readFile(join(cwd, "a.txt"), "utf8")).toBe("agent\n");
+  expect(await exists(wt)).toBe(true);
+
+  await sh(cwd, "worktree", "unlock", wt);
+  expect(txt(await run(h, cwd, { action: "discard", id }))).toContain("discarded");
+  expect(await exists(wt)).toBe(false);
+});
+
 test("worktrees survive a restart and can still be applied", async () => {
   const cwd = await repo();
   const h = harness();

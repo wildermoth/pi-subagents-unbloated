@@ -271,12 +271,12 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
             cause: e,
           });
         }
-        forget(p.id!);
         let left = "";
         try {
           await iso.discard(ws, { force: true }); // safe: the changes now live in the parent tree
+          forget(p.id!);
         } catch (e) {
-          left = `\nworktree cleanup incomplete: ${(e as Error).message}`;
+          left = `\nworktree cleanup incomplete at ${ws.path}: ${(e as Error).message}. Retry with discard ${p.id}.`;
         }
         return text(`applied ${applied.length} file(s):\n${applied.join("\n")}${left}`);
       }
