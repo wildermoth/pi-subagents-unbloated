@@ -310,8 +310,13 @@ export async function apply(ws: Workspace): Promise<{ applied: string[] }> {
 /** Remove worktree, branch and snapshot ref. Refuses if the agent changed anything unless force. Stops at the first git failure. */
 export async function discard(ws: Workspace, opts: { force?: boolean } = {}): Promise<void> {
   if (await exists(ws.path)) {
-    if (!opts.force && (await changesOf(ws)).changed.length !== 0) {
-      throw new IsolationError("dirty", `worktree has changes, use force to discard: ${ws.path}`, ws.path);
+    if (!opts.force) {
+      const { snap, changed } = await changesOf(ws);
+      const head = await gitText(ws.path, ["rev-parse", "HEAD"]);
+      const ignored = await git(ws.path, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"]);
+      if (changed.length || head !== snap || ignored.length) {
+        throw new IsolationError("dirty", `worktree has changes, use force to discard: ${ws.path}`, ws.path);
+      }
     }
     await git(ws.repoRoot, ["worktree", "remove", "--force", ws.path]);
   } else {

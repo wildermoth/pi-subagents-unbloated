@@ -205,6 +205,23 @@ test("discard with changes requires force; unmodified is removed with its branch
   expect(await exists(ws2.path)).toBe(false);
 });
 
+test("discard preserves ignored files unless forced", async () => {
+  const ws = await create({ repoRoot: repo, id: "ignored" });
+  await put(ws.path, "ignored.txt", "agent data\n");
+  expect((await discard(ws).catch((e) => e)).kind).toBe("dirty");
+  expect(await read(ws.path, "ignored.txt")).toBe("agent data\n");
+  await discard(ws, { force: true });
+  expect(await exists(ws.path)).toBe(false);
+});
+
+test("discard preserves agent commits even when the tree is unchanged", async () => {
+  const ws = await create({ repoRoot: repo, id: "committed" });
+  await git(ws.path, "-c", "user.name=a", "-c", "user.email=a@a", "commit", "--allow-empty", "-qm", "agent");
+  expect((await discard(ws).catch((e) => e)).kind).toBe("dirty");
+  expect(await exists(ws.path)).toBe(true);
+  await discard(ws, { force: true });
+});
+
 test("inspect truncates large diffs with a marker", async () => {
   const ws = await create({ repoRoot: repo, id: "j" });
   await put(ws.path, "big.txt", "line of text\n".repeat(20_000));
