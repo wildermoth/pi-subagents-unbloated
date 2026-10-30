@@ -18,6 +18,7 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
   let timer: ReturnType<typeof setInterval> | undefined;
   let fit: ((line: string, width: number) => string) | undefined;
   let measure: ((line: string) => number) | undefined;
+  let loadingFit = false;
   let mounted = false; // setWidget may call its factory later, so track mounting here, not via tui
   let frame = 0;
   let restoreCursor: (() => void) | undefined;
@@ -121,14 +122,9 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
   return {
     /** Call with the current UI context whenever it may have changed; a new context remounts the widget. */
     bind(next: ExtensionUIContext | undefined): void {
-      if (next === ui) return;
-      stop();
-      resetCursor();
-      ui = next;
-      tui = undefined;
-      mounted = false;
-      if (next && !fit) {
+      if (next && !fit && !loadingFit) {
         // Pi's width helper understands ANSI and wide characters; load it once, only when there is a UI.
+        loadingFit = true;
         void import("@earendil-works/pi-tui")
           .then((m) => {
             fit = (line, width) => m.truncateToWidth(line, width);
@@ -137,8 +133,17 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
           })
           .catch(() => {
             // Width helpers are optional, and a later bind can retry.
+          })
+          .finally(() => {
+            loadingFit = false;
           });
       }
+      if (next === ui) return;
+      stop();
+      resetCursor();
+      ui = next;
+      tui = undefined;
+      mounted = false;
       update();
     },
     /** True when the editor owns the keyboard, not a dialog or an unbound UI. */
