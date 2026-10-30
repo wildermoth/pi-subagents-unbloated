@@ -39,6 +39,24 @@ const exists = (p: string) =>
 const start = async (h: ReturnType<typeof harness>, cwd: string, extra: object = {}) =>
   txt(await run(h, cwd, { action: "start", agent: "worker", task: "edit", ...extra })).split(" ")[1]!;
 
+test("synchronous launch failure delivers the isolated worktree instructions", async () => {
+  const cwd = await repo();
+  const h = harness(
+    [],
+    { on: false },
+    {
+      start: () => {
+        throw new Error("launch failed");
+      },
+    },
+  );
+  await h.handlers.session_start!({}, h.ctx(cwd));
+  const id = await start(h, cwd, { isolate: true });
+  await tick();
+  expect(h.sent[0]?.msg.content).toContain(`apply or discard ${id}`);
+  await run(h, cwd, { action: "discard", id });
+});
+
 test("isolated job runs in a worktree, diff shows its edits, apply lands them in the parent", async () => {
   const cwd = await repo();
   const h = harness();

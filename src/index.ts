@@ -64,6 +64,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   });
   const widget = createWidget(records, { selected: list.selected, active: list.active });
   let waking = false; // a wake is in flight; sendMessage defers inside agent_settled, so isIdle() stays true meanwhile
+  let startingJob = false;
 
   /** An agent with no `tools:` line is not restricted: it gets what the parent has active, minus this tool (no recursion). */
   const inheritedTools = (): string[] => pi.getActiveTools().filter((n) => n !== "subagent");
@@ -108,7 +109,10 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
   };
 
   function getState() {
-    return (pending ??= build());
+    return (pending ??= build().catch((error: unknown) => {
+      pending = undefined;
+      throw error;
+    }));
   }
   async function build() {
     // Lazy: nothing but the tool declaration loads at startup.
@@ -120,7 +124,18 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     const inbox = createInbox({ onPublish: flushIfIdle });
     const jobs = createJobs({
       runner,
-      onTerminal: (r) => inbox.publish(r),
+      onTerminal: (r) => {
+        // A synchronous launch failure can settle before start returns its record and worktree note.
+        if (startingJob)
+          queueMicrotask(() => {
+            try {
+              inbox.publish(r);
+            } catch {
+              // Match the job observer's error isolation; failed delivery stays in the inbox.
+            }
+          });
+        else inbox.publish(r);
+      },
       onChange: ({ id, agent, task, state: s, createdAt, endedAt, delivered }) => {
         pi.appendEntry(JOB_ENTRY, { id, agent, task, state: s, createdAt, endedAt, delivered });
         widget.update();
@@ -179,6 +194,7 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
         }
         let rec: JobRecord;
         try {
+          startingJob = true;
           rec = jobs.start({
             agent: def.name,
             spec: {
@@ -203,6 +219,8 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
             }
           }
           throw e;
+        } finally {
+          startingJob = false;
         }
         const ref = def.model ? splitModel(def.model) : undefined;
         rec.contextWindow = (ref ? c.modelRegistry.find(ref.provider, ref.id) : c.model)?.contextWindow;

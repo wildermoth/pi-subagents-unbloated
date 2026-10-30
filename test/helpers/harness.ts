@@ -13,7 +13,7 @@ export interface Ctl {
   cancelled: number;
 }
 
-export function harness(branch: unknown[] = [], failSend = { on: false }) {
+export function harness(branch: unknown[] = [], failSend = { on: false }, injected?: Runner) {
   const handlers: Record<string, (e: any, c: any) => any> = {};
   const sent: { msg: any; opts: any }[] = [];
   const entries: { type: string; data: any }[] = [];
@@ -47,7 +47,7 @@ export function harness(branch: unknown[] = [], failSend = { on: false }) {
     },
     appendEntry: (type: string, data: any) => entries.push({ type, data }),
   };
-  register(pi as any, runner);
+  register(pi as any, injected ?? runner);
   let idle = true;
   // Like Pi, build the widget component on mount; tests read what it would draw right now.
   let mounted: { render(w: number): string[] } | undefined;
