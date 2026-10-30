@@ -6,6 +6,7 @@ import type { JobRecord, Jobs } from "./jobs.ts";
 import type { Workspace } from "./isolation.ts";
 import { createAgentList } from "./agent-list.ts";
 import { createWidget } from "./widget.ts";
+import { renderCall, renderResult } from "./tool-render.ts";
 import { recover, JOB_ENTRY, UNREAD_ENTRY, WS_ENTRY } from "./recovery.ts";
 import { isDone, line, MAX_DIFF_CHARS, params, requireArgs, text, WAIT_HINT, type Params } from "./schema.ts";
 import type { Runner } from "./types.ts";
@@ -154,6 +155,9 @@ export default function (pi: ExtensionAPI, injected?: Runner) {
     label: "Subagent",
     description: "Delegate to agents: start needs agent and task, runs in background. Then end your turn.",
     parameters: params,
+    renderShell: "self",
+    renderCall,
+    renderResult,
     async execute(_id, args, signal, _onUpdate, c) {
       try {
         return await runAction(args, signal, c);

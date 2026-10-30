@@ -14,6 +14,8 @@ test("registers one tool with a short description", () => {
   const h = harness();
   expect(h.tool.name).toBe("subagent");
   expect(h.tool.description.length).toBeLessThan(130);
+  expect(typeof h.tool.renderCall).toBe("function");
+  expect(typeof h.tool.renderResult).toBe("function");
 });
 
 test("start with wait returns the result and consumes it", async () => {

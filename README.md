@@ -46,7 +46,7 @@ subagent({ action, agent?, task?, id?, message?, wait?, isolate? })
 | `apply` | `id` | Apply an isolated job's changes to your working tree, then remove its worktree. Only after the job has ended. |
 | `discard` | `id` | Throw away an isolated job's worktree and branch. Explicit, and only after the job has ended. |
 
-Invalid combinations (for example `start` without `task`) are rejected with a short error. A `/subagents` command shows the job list, and `/subagent-model` opens a menu to pick an agent's model and thinking level (see Agent definitions).
+Invalid combinations (for example `start` without `task`) are rejected with a short error. A `/subagents` command shows the job list, and `/subagent-model` opens a menu to pick an agent's model and thinking level (see Agent definitions). Background launches appear as a compact line in the chat; errors and waited results remain visible.
 
 Concurrency is limited per backend: 6 child processes and 50 in-process agents at once, with one strict FIFO queue per backend (a full backend never blocks the other). At most 128 jobs may be outstanding (running or queued); `start` beyond that is rejected. Results are bounded in size and truncated with an explicit marker.
 
