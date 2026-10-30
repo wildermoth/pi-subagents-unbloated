@@ -1,7 +1,7 @@
 /** Keyboard control of the status widget: Down at an empty prompt moves a cursor onto the agents, Enter opens an action menu. */
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type { JobRecord } from "./jobs.ts";
-import { selectable } from "./statusbar.ts";
+import { activity, elapsed, selectable, tokens } from "./statusbar.ts";
 
 type Keys = Pick<typeof import("@earendil-works/pi-tui"), "isKeyRelease" | "matchesKey">;
 
@@ -29,6 +29,7 @@ export function createAgentList(o: AgentListOptions) {
   let ui: ExtensionUIContext | undefined;
   let unsubscribe: (() => void) | undefined;
   let keys: Keys | undefined;
+  let closeManager: (() => void) | undefined;
 
   const rows = () => selectable(o.records());
 
@@ -61,6 +62,8 @@ export function createAgentList(o: AgentListOptions) {
         if (message?.trim()) await o.steer(r.id, message.trim()).catch(note);
       };
       a.Cancel = async () => void (await o.cancel(r.id).catch(note));
+    } else if (r.state === "queued") {
+      a.Cancel = async () => void (await o.cancel(r.id).catch(note));
     } else {
       a["Show result"] = async () => {
         const res = r.result;
@@ -86,6 +89,108 @@ export function createAgentList(o: AgentListOptions) {
       resync(); // the job may have finished or been delivered meanwhile
       if (rows().length === 0) close();
       else o.redraw();
+    }
+  }
+
+  /** All session jobs, including delivered results, remain inspectable in the manager. */
+  async function openManager(): Promise<void> {
+    if (!ui || !keys || busy) return;
+    const u = ui;
+    const k = keys;
+    busy = true;
+    close();
+    let timer: ReturnType<typeof setInterval> | undefined;
+    try {
+      const { truncateToWidth, visibleWidth } = await import("@earendil-works/pi-tui");
+      if (ui !== u) return;
+      const picked = await u.custom<JobRecord | undefined>((tui, theme, _bindings, done) => {
+        let selected: string | undefined;
+        let cursor = 0;
+        let scroll = 0;
+        const groups = () => {
+          const records = o.records();
+          return [
+            { title: "Working", jobs: records.filter(isLive) },
+            { title: "Queued", jobs: records.filter((r) => r.state === "queued") },
+            { title: "Needs attention", jobs: records.filter((r) => r.state === "failed" || r.state === "interrupted") },
+            { title: "Completed", jobs: records.filter((r) => r.state === "completed" || r.state === "cancelled") },
+          ];
+        };
+        const sync = () => {
+          const jobs = groups().flatMap((group) => group.jobs);
+          const at = jobs.findIndex((r) => r.id === selected);
+          cursor = Math.max(0, Math.min(jobs.length - 1, at >= 0 ? at : cursor));
+          selected = jobs[cursor]?.id;
+          return jobs;
+        };
+        closeManager = () => done(undefined);
+        timer = setInterval(() => tui.requestRender(), 100);
+        timer.unref?.();
+        const renderRow = (r: JobRecord, width: number): string => {
+          const mark = r.id === selected ? ">" : " ";
+          const summary = isLive(r)
+            ? activity(r.progress)
+            : r.result?.status === "failed"
+              ? r.result.failure.message
+              : (r.result?.text ?? r.task);
+          const left = `${mark} ${r.agent} (${r.state})  ${summary}`.replace(/\s+/g, " ");
+          const stats = `${elapsed((r.endedAt ?? Date.now()) - (r.startedAt ?? r.createdAt))} · ${tokens(r.progress?.tokens ?? 0)} tokens`;
+          const right = truncateToWidth(stats, width);
+          const room = Math.max(0, width - visibleWidth(right) - 2);
+          const label = truncateToWidth(left, room);
+          return room > 0 ? label + " ".repeat(Math.max(2, width - visibleWidth(label) - visibleWidth(right))) + right : right;
+        };
+        return {
+          render(width) {
+            sync();
+            const entries: { text: string; id?: string; heading?: string }[] = [];
+            for (const group of groups()) {
+              if (!group.jobs.length) continue;
+              entries.push({ text: theme.fg("accent", group.title), heading: group.title });
+              for (const r of group.jobs) {
+                entries.push({ text: renderRow(r, width), id: r.id });
+              }
+            }
+            // Reserve title, current section heading and key hints. Keep the cursor inside the viewport.
+            const capacity = Math.max(1, (tui.terminal?.rows ?? 24) - 6);
+            const at = entries.findIndex((entry) => entry.id === selected);
+            if (at < scroll) scroll = Math.max(0, at);
+            if (at >= scroll + capacity) scroll = at - capacity + 1;
+            scroll = Math.min(scroll, Math.max(0, entries.length - capacity));
+            const section = entries.slice(0, scroll + 1).findLast((entry) => entry.heading)?.heading;
+            const lines = [theme.bold("Agents")];
+            if (scroll > 0 && section && !entries[scroll]?.heading) lines.push(theme.fg("accent", section));
+            lines.push(...entries.slice(scroll, scroll + capacity).map((entry) => entry.text));
+            if (!entries.length) lines.push(theme.fg("dim", "No agents in this session"));
+            lines.push(theme.fg("dim", "↑↓ select · enter actions · esc close"));
+            return lines;
+          },
+          handleInput(data) {
+            if (k.isKeyRelease(data)) return;
+            const jobs = sync();
+            if (k.matchesKey(data, "escape")) done(undefined);
+            else if (k.matchesKey(data, "enter")) done(jobs[cursor]);
+            else if (k.matchesKey(data, "up") || k.matchesKey(data, "down")) {
+              cursor = Math.max(0, Math.min(jobs.length - 1, cursor + (k.matchesKey(data, "up") ? -1 : 1)));
+              selected = jobs[cursor]?.id;
+              tui.requestRender();
+            }
+          },
+          invalidate() {
+            // Every render reads the current records, so there is no cache to invalidate.
+          },
+        };
+      });
+      clearInterval(timer);
+      closeManager = undefined;
+      if (picked && ui === u) {
+        const current = o.records().find((r) => r.id === picked.id);
+        if (current) await openActions(current);
+      }
+    } finally {
+      clearInterval(timer);
+      closeManager = undefined;
+      busy = false;
     }
   }
 
@@ -119,6 +224,10 @@ export function createAgentList(o: AgentListOptions) {
   /** Returns `{ consume: true }` to swallow a key, or undefined to let Pi have it. */
   function handleKey(data: string): { consume: true } | undefined {
     if (!keys || !ui || busy || keys.isKeyRelease(data) || !o.editorFocused()) return undefined;
+    if (keys.matchesKey(data, "left") && ui.getEditorText() === "") {
+      void openManager().catch((error: unknown) => ui?.notify(error instanceof Error ? error.message : String(error), "error"));
+      return { consume: true };
+    }
     if (!active) return activate(data, keys);
     resync();
     return navigate(data, keys);
@@ -131,6 +240,7 @@ export function createAgentList(o: AgentListOptions) {
     /** Listen for keys on this UI context; a new context replaces the old listener. */
     async bind(next: ExtensionUIContext | undefined): Promise<void> {
       if (next === ui) return;
+      closeManager?.();
       unsubscribe?.();
       unsubscribe = undefined;
       active = false;
@@ -142,6 +252,7 @@ export function createAgentList(o: AgentListOptions) {
       unsubscribe = next.onTerminalInput(handleKey);
     },
     dispose(): void {
+      closeManager?.();
       unsubscribe?.();
       unsubscribe = undefined;
       ui = undefined;

@@ -3,6 +3,7 @@ import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { createAgentList } from "../src/agent-list.ts";
 import type { JobRecord } from "../src/jobs.ts";
 
+const LEFT = "\x1b[D";
 const DOWN = "\x1b[B";
 const UP = "\x1b[A";
 const ESC = "\x1b";
@@ -31,8 +32,23 @@ async function setup(jobs: JobRecord[], answers: (string | undefined)[] = [], te
   let handler: ((d: string) => { consume?: boolean } | undefined) | undefined;
   let focused = true;
   const asked: { title: string; options: string[] }[] = [];
+  let manager: { render(width: number): string[]; handleInput(data: string): void } | undefined;
+  let managerClosed = 0;
   const ui = {
     onTerminalInput: (h: typeof handler) => ((handler = h), () => (handler = undefined)),
+    custom: (factory: (...args: unknown[]) => typeof manager) =>
+      new Promise((resolve) => {
+        manager = factory(
+          { requestRender: () => void calls.redraws++, terminal: { rows: 24 } },
+          { bold: (s: string) => s, fg: (_color: string, s: string) => s },
+          {},
+          (value: unknown) => {
+            manager = undefined;
+            managerClosed++;
+            resolve(value);
+          },
+        );
+      }),
     getEditorText: () => text,
     select: async (title: string, options: string[]) => (asked.push({ title, options }), answers.shift()),
     input: async () => answers.shift(),
@@ -49,7 +65,17 @@ async function setup(jobs: JobRecord[], answers: (string | undefined)[] = [], te
   });
   await list.bind(ui);
   const press = (k: string) => handler?.(k);
-  return { list, press, calls, asked, setText: (t: string) => (text = t), setFocused: (f: boolean) => (focused = f), jobs };
+  return {
+    list,
+    press,
+    calls,
+    asked,
+    manager: () => manager,
+    managerClosed: () => managerClosed,
+    setText: (t: string) => (text = t),
+    setFocused: (f: boolean) => (focused = f),
+    jobs,
+  };
 }
 const flush = () => new Promise((r) => setTimeout(r, 5));
 
@@ -210,4 +236,103 @@ test("rebinding to another terminal drops the old listener, and dispose stops li
   await t.list.bind(undefined);
   expect(t.list.active()).toBe(false);
   expect(t.press(DOWN)).toBeUndefined();
+});
+
+test("Left opens a grouped manager including delivered history, and Enter opens the selected actions", async () => {
+  const t = await setup(
+    [
+      job("done", "completed", { delivered: true }),
+      job("failed", "failed"),
+      job("queued", "queued"),
+      job("running", "running"),
+      job("interrupted", "interrupted"),
+    ],
+    ["Show result"],
+  );
+  expect(t.press(LEFT)).toEqual({ consume: true });
+  await flush();
+  const lines = t.manager()!.render(120).join("\n");
+  expect(lines.indexOf("Working")).toBeLessThan(lines.indexOf("Queued"));
+  expect(lines.indexOf("Queued")).toBeLessThan(lines.indexOf("Needs attention"));
+  expect(lines.indexOf("Needs attention")).toBeLessThan(lines.indexOf("Completed"));
+  expect(lines).toContain("agent-done (completed)");
+  t.manager()!.handleInput(DOWN);
+  t.manager()!.handleInput(DOWN);
+  t.manager()!.handleInput(ENTER);
+  await flush();
+  expect(t.managerClosed()).toBe(1);
+  expect(t.asked[0]!.title).toContain("agent-failed");
+});
+
+test("manager reads live records and Escape returns without actions", async () => {
+  const t = await setup([]);
+  t.press(LEFT);
+  await flush();
+  expect(t.manager()!.render(120).join("\n")).toContain("No agents");
+  t.jobs.push(job("new", "running"));
+  expect(t.manager()!.render(120).join("\n")).toContain("agent-new");
+  t.manager()!.handleInput(ESC);
+  await flush();
+  expect(t.manager()).toBeUndefined();
+  expect(t.asked).toEqual([]);
+});
+
+test("Left respects editor ownership, and disposing closes the manager", async () => {
+  const t = await setup([job("1", "running")], [], "typing");
+  expect(t.press(LEFT)).toBeUndefined();
+  t.setText("");
+  t.setFocused(false);
+  expect(t.press(LEFT)).toBeUndefined();
+  t.setFocused(true);
+  t.press(LEFT);
+  await flush();
+  t.list.dispose();
+  await flush();
+  expect(t.managerClosed()).toBe(1);
+});
+
+test("manager scrolls long history while retaining section and key hints", async () => {
+  const t = await setup(Array.from({ length: 40 }, (_, i) => job(String(i), "completed", { delivered: true })));
+  t.press(LEFT);
+  await flush();
+  for (let i = 0; i < 39; i++) t.manager()!.handleInput(DOWN);
+  const lines = t.manager()!.render(100);
+  expect(lines.length).toBeLessThanOrEqual(24);
+  expect(lines.join("\n")).toContain("> agent-39");
+  expect(lines).toContain("Completed");
+  expect(lines.at(-1)).toContain("esc close");
+  t.manager()!.handleInput(ESC);
+  await flush();
+});
+
+test("manager aligns unicode rows and displays live activity and result summaries", async () => {
+  const { visibleWidth } = await import("@earendil-works/pi-tui");
+  const t = await setup([
+    job("live", "running", { agent: "探索", progress: { turns: 1, tools: 1, tokens: 1200, active: ["read"], text: "" } }),
+    job("done", "completed", { result: { status: "completed", text: "Found the answer", truncated: false }, endedAt: 2000 }),
+  ]);
+  t.press(LEFT);
+  await flush();
+  const lines = t.manager()!.render(100);
+  expect(lines.join("\n")).toContain("reading");
+  expect(lines.join("\n")).toContain("Found the answer");
+  expect(lines.find((line) => line.includes("探索"))).toEndWith("1.2k tokens");
+  for (const line of lines.filter((line) => line.includes("tokens"))) expect(visibleWidth(line)).toBe(100);
+  for (const line of t
+    .manager()!
+    .render(12)
+    .filter((line) => line.includes("tokens")))
+    expect(visibleWidth(line)).toBeLessThanOrEqual(12);
+  t.manager()!.handleInput(ESC);
+  await flush();
+});
+
+test("queued manager entries offer cancellation rather than a result", async () => {
+  const t = await setup([job("queued", "queued")], ["Cancel"]);
+  t.press(LEFT);
+  await flush();
+  t.manager()!.handleInput(ENTER);
+  await flush();
+  expect(t.asked[0]!.options).toEqual(["Cancel", "Model and thinking", "Back"]);
+  expect(t.calls.cancel).toEqual(["queued"]);
 });
