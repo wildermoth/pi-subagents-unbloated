@@ -61,7 +61,11 @@ export function createSdkRunner(opts: SdkRunnerOptions = {}): Runner {
   const maxResultBytes = opts.maxResultBytes ?? 8192;
   // One model/credential runtime for every in-process agent: sessions share auth instead of racing on it.
   let runtime: ReturnType<Sdk["ModelRuntime"]["create"]> | undefined;
-  const modelRuntime = (sdk: Sdk) => (runtime ??= sdk.ModelRuntime.create());
+  const modelRuntime = (sdk: Sdk) =>
+    (runtime ??= sdk.ModelRuntime.create().catch((err) => {
+      runtime = undefined;
+      throw err;
+    }));
 
   return {
     start(spec: RunSpec): Child {
@@ -70,13 +74,13 @@ export function createSdkRunner(opts: SdkRunnerOptions = {}): Runner {
       let outcome: RunResult | undefined;
       let session: AgentSession | undefined;
       let lastAssistant: JsonRecord | undefined;
-      let timer: ReturnType<typeof setTimeout> | undefined;
 
       /** Single terminal transition; the first caller wins. Always releases the session. */
       const decide = (r: RunResult): void => {
         if (outcome) return;
         outcome = r;
         clearTimeout(timer);
+        clearTimeout(launchTimer);
         const s = session;
         void (async () => {
           try {
@@ -103,14 +107,19 @@ export function createSdkRunner(opts: SdkRunnerOptions = {}): Runner {
         if (m?.role === "assistant") lastAssistant = m;
       };
 
+      const timer = setTimeout(() => fail("timeout", `run did not settle within ${spec.timeoutMs}ms`), spec.timeoutMs);
+      const launchTimer = setTimeout(() => fail("timeout", `session did not start within ${spec.launchTimeoutMs}ms`), spec.launchTimeoutMs);
       void (async () => {
         try {
           const sdk = await load();
-          session = await openSession(sdk, await modelRuntime(sdk), spec, () => !outcome);
+          if (outcome) return;
+          const rt = await modelRuntime(sdk);
+          if (outcome) return;
+          session = await openSession(sdk, rt, spec, () => !outcome);
           if (!session) return;
           if (outcome) return void session.dispose();
+          clearTimeout(launchTimer);
           session.subscribe(onEvent);
-          timer = setTimeout(() => fail("timeout", `run did not settle within ${spec.timeoutMs}ms`), spec.timeoutMs);
           await session.prompt(spec.task);
           if (outcome) return;
           lastAssistant ??= asRecord(session.messages.findLast((m) => (m as { role?: string }).role === "assistant"));

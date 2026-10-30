@@ -175,6 +175,54 @@ describe("sdk runner", () => {
     expect(f.calls.sessions[0]).toMatchObject({ aborts: 1, disposed: 1 });
   });
 
+  test("launch timeout prevents a late SDK load from starting a session", async () => {
+    const f = fakeSdk();
+    let release!: () => void;
+    const blocked = new Promise<void>((r) => (release = r));
+    const child = createSdkRunner({
+      load: async () => {
+        await blocked;
+        return f.load();
+      },
+    }).start(spec({ launchTimeoutMs: 20 }));
+    expect(await child.done).toMatchObject({ status: "failed", failure: { kind: "timeout" } });
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f.calls.sessions).toHaveLength(0);
+  });
+
+  test("a session created after launch timeout is disposed without prompting", async () => {
+    const f = fakeSdk();
+    const sdk = (await f.load()) as any;
+    const create = sdk.createAgentSession;
+    let release!: () => void;
+    const blocked = new Promise<void>((r) => (release = r));
+    sdk.createAgentSession = async (o: unknown) => {
+      await blocked;
+      return create(o);
+    };
+    const child = createSdkRunner({ load: async () => sdk }).start(spec({ launchTimeoutMs: 20 }));
+    expect(await child.done).toMatchObject({ status: "failed", failure: { kind: "timeout" } });
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f.calls.sessions[0]).toMatchObject({ disposed: 1, messages: [] });
+  });
+
+  test("a failed shared runtime initialization can be retried", async () => {
+    const f = fakeSdk();
+    const sdk = (await f.load()) as any;
+    const create = sdk.ModelRuntime.create;
+    let attempts = 0;
+    sdk.ModelRuntime.create = async () => {
+      if (++attempts === 1) throw new Error("temporary runtime failure");
+      return create();
+    };
+    const runner = createSdkRunner({ load: async () => sdk });
+    expect(await runner.start(spec()).done).toMatchObject({ status: "failed", failure: { kind: "launch" } });
+    expect(await runner.start(spec()).done).toMatchObject({ status: "completed" });
+    expect(attempts).toBe(2);
+  });
+
   test("cancel mid-run aborts once, disposes once, and is idempotent", async () => {
     const f = fakeSdk((s) => {
       s.say(assistant("so far"));
