@@ -21,6 +21,14 @@ export interface AgentListOptions {
 
 const isLive = (r: JobRecord) => r.state === "starting" || r.state === "running";
 
+function telemetry(record: JobRecord): string {
+  const end = record.endedAt ?? (isLive(record) || record.state === "queued" ? Date.now() : undefined);
+  const parts: string[] = [];
+  if (end !== undefined) parts.push(elapsed(end - (record.startedAt ?? record.createdAt)));
+  if (record.progress || isLive(record)) parts.push(`${tokens(record.progress?.tokens ?? 0)} tokens`);
+  return parts.join(" · ");
+}
+
 export function createAgentList(o: AgentListOptions) {
   let active = false;
   let busy = false; // an action menu is open: it owns the keyboard, not us
@@ -134,11 +142,7 @@ export function createAgentList(o: AgentListOptions) {
                 ? r.result.failure.message
                 : clip(r.result?.text ?? r.task, 120);
             const left = `${mark} ${r.agent} (${r.state})  ${summary}`.replace(/\s+/g, " ");
-            const end = r.endedAt ?? (isLive(r) || r.state === "queued" ? Date.now() : undefined);
-            const parts: string[] = [];
-            if (end !== undefined) parts.push(elapsed(end - (r.startedAt ?? r.createdAt)));
-            if (r.progress || isLive(r)) parts.push(`${tokens(r.progress?.tokens ?? 0)} tokens`);
-            const right = truncateToWidth(parts.join(" · "), width);
+            const right = truncateToWidth(telemetry(r), width);
             if (!right) return truncateToWidth(left, width);
             const room = Math.max(0, width - visibleWidth(right) - 2);
             const label = truncateToWidth(left, room);
