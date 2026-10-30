@@ -77,6 +77,45 @@ function conn(args: string[], extra: Partial<ConstructorParameters<typeof RpcCon
 }
 
 describe("RpcConnection", () => {
+  test("validates response fields before resolving requests", async () => {
+    for (const response of [
+      { success: "false" },
+      {},
+      { success: true, data: [] },
+      { success: true, error: 42 },
+      { success: true, command: 42 },
+    ]) {
+      const script = `process.stdin.once('data', (chunk) => {
+        const request = JSON.parse(String(chunk));
+        console.log(JSON.stringify({ type: 'response', id: request.id, ...${JSON.stringify(response)} }));
+      });`;
+      const child = spawn(process.execPath, ["-e", script], { stdio: ["pipe", "pipe", "pipe"] });
+      const errors: Error[] = [];
+      const c = new RpcConnection(child, { onEvent() {}, onProtocolError: (e) => errors.push(e) });
+      const error = await c.send({ type: "steer", message: "x" }, 5000).catch((e) => e);
+      expect(error).toBeInstanceOf(RpcError);
+      expect(error.code).toBe("protocol");
+      expect(errors).toHaveLength(1);
+      c.closeInput();
+      await c.exited;
+    }
+  });
+  test("accepts nullable response data", async () => {
+    const script = `process.stdin.once('data', (chunk) => {
+      const request = JSON.parse(String(chunk));
+      console.log(JSON.stringify({ type: 'response', id: request.id, command: 'cycle_model', success: true, data: null }));
+    });`;
+    const child = spawn(process.execPath, ["-e", script], { stdio: ["pipe", "pipe", "pipe"] });
+    const c = new RpcConnection(child, {
+      onEvent() {},
+      onProtocolError: (e) => {
+        throw e;
+      },
+    });
+    expect((await c.send({ type: "cycle_model" }, 5000)).data).toBeNull();
+    c.closeInput();
+    await c.exited;
+  });
   test("correlates responses and delivers events", async () => {
     const { c, events } = conn(["--fake=normal"]);
     const r = await c.send({ type: "get_state" }, 5000);

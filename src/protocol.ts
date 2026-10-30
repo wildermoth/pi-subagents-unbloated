@@ -83,7 +83,18 @@ export interface RpcResponse {
   command?: string;
   success: boolean;
   error?: string;
-  data?: JsonRecord;
+  data?: JsonRecord | null;
+}
+
+function isRpcResponse(msg: JsonRecord): msg is JsonRecord & RpcResponse {
+  return (
+    msg.type === "response" &&
+    typeof msg.success === "boolean" &&
+    (msg.id === undefined || typeof msg.id === "string") &&
+    (msg.command === undefined || typeof msg.command === "string") &&
+    (msg.error === undefined || typeof msg.error === "string") &&
+    (msg.data === undefined || msg.data === null || (typeof msg.data === "object" && !Array.isArray(msg.data)))
+  );
 }
 
 export interface ExitInfo {
@@ -221,10 +232,20 @@ export class RpcConnection {
     if (msg.type === "response") {
       const id = msg.id;
       const p = typeof id === "string" ? this.pending.get(id) : undefined;
+      if (!isRpcResponse(msg)) {
+        const error = new RpcError("protocol", "malformed response");
+        if (p && typeof id === "string") {
+          this.pending.delete(id);
+          clearTimeout(p.timer);
+          p.reject(error);
+        }
+        this.opts.onProtocolError(error);
+        return;
+      }
       if (p && typeof id === "string") {
         this.pending.delete(id);
         clearTimeout(p.timer);
-        p.resolve(msg as unknown as RpcResponse);
+        p.resolve(msg);
       } else if (msg.success === false) {
         // e.g. a parse-error response with no id: we sent something the child rejected
         this.opts.onProtocolError(new RpcError("protocol", `unmatched error response: ${String(msg.error)}`));
