@@ -141,6 +141,13 @@ describe("sdk runner", () => {
     expect("model" in f.calls.session).toBe(false);
   });
 
+  test("an invalid thinking level fails before opening a session", async () => {
+    const f = fakeSdk();
+    const result = await createSdkRunner({ load: f.load }).start(spec({ thinking: "invalid" })).done;
+    expect(result).toMatchObject({ status: "failed", failure: { kind: "launch", message: 'unknown thinking level "invalid"' } });
+    expect(f.calls.sessions).toHaveLength(0);
+  });
+
   test("an unknown model fails as a launch error without creating a session", async () => {
     const f = fakeSdk();
     const r = await createSdkRunner({ load: f.load }).start(spec({ model: "nope/model" })).done;

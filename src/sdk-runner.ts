@@ -1,6 +1,6 @@
 /** Runs a RunSpec as an in-process Pi SDK session. Same contract as runner.ts, cheaper, but no process isolation. */
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import { splitModel } from "./agents.ts";
+import { splitModel, THINKING_LEVELS } from "./agents.ts";
 import { asRecord, partialOf, settledOutcome } from "./outcome.ts";
 import { createTracker } from "./progress.ts";
 import type { JsonRecord } from "./protocol.ts";
@@ -28,6 +28,8 @@ async function openSession(
     model = ref && rt.getModel(ref.provider, ref.id);
     if (!model) throw new Error(`unknown model "${spec.model}"`);
   }
+  const thinking = THINKING_LEVELS.find((level) => level === spec.thinking);
+  if (spec.thinking && !thinking) throw new Error(`unknown thinking level "${spec.thinking}"`);
   const settingsManager = sdk.SettingsManager.inMemory({}, { projectTrusted: spec.trusted });
   const agentDir = sdk.getAgentDir();
   const resourceLoader = new sdk.DefaultResourceLoader({
@@ -47,7 +49,7 @@ async function openSession(
     agentDir,
     modelRuntime: rt,
     ...(model ? { model } : {}),
-    ...(spec.thinking ? { thinkingLevel: spec.thinking as never } : {}),
+    ...(thinking ? { thinkingLevel: thinking } : {}),
     ...(spec.tools ? { tools: spec.tools } : {}),
     resourceLoader,
     settingsManager,
