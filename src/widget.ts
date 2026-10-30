@@ -20,6 +20,33 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
   let measure: ((line: string) => number) | undefined;
   let mounted = false; // setWidget may call its factory later, so track mounting here, not via tui
   let frame = 0;
+  let restoreCursor: (() => void) | undefined;
+  let cursorEditor: unknown;
+
+  function syncCursor(): void {
+    const editor = tui?.focusedComponent as { render?: (width: number) => string[]; getText?: unknown; setText?: unknown } | undefined;
+    const hide =
+      view?.active() &&
+      editor &&
+      typeof editor.render === "function" &&
+      typeof editor.getText === "function" &&
+      typeof editor.setText === "function";
+    if (hide && cursorEditor === editor) return;
+    restoreCursor?.();
+    restoreCursor = undefined;
+    cursorEditor = undefined;
+    if (!hide || !editor.render) return;
+    const original = editor.render;
+    const wrapped = (width: number) =>
+      original
+        .call(editor, width)
+        .map((line) => line.replaceAll("\x1b_pi:c\x07", "").replaceAll("\x1b_pi:fc\x07", "").replaceAll("\x1b_pi:/fc\x07", ""));
+    editor.render = wrapped;
+    cursorEditor = editor;
+    restoreCursor = () => {
+      if (editor.render === wrapped) editor.render = original;
+    };
+  }
 
   const stop = () => {
     clearInterval(timer);
@@ -33,6 +60,9 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
       const { shown, queued, running } = select(records());
       if (!shown.length && !queued) {
         stop();
+        restoreCursor?.();
+        restoreCursor = undefined;
+        cursorEditor = undefined;
         if (mounted) ui.setWidget(KEY, undefined);
         mounted = false;
         tui = undefined;
@@ -70,6 +100,7 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
           { placement: "belowEditor" },
         );
       }
+      syncCursor();
       tui?.requestRender();
       if (!running) return stop();
       timer ??= setInterval(() => {
@@ -79,6 +110,9 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
       timer.unref?.(); // an animation must never keep Pi alive
     } catch {
       // The UI context went stale (reload or session switch); the next bind() recovers.
+      restoreCursor?.();
+      restoreCursor = undefined;
+      cursorEditor = undefined;
       ui = tui = undefined;
       mounted = false;
       stop();
@@ -90,6 +124,9 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
     bind(next: ExtensionUIContext | undefined): void {
       if (next === ui) return;
       stop();
+      restoreCursor?.();
+      restoreCursor = undefined;
+      cursorEditor = undefined;
       ui = next;
       tui = undefined;
       mounted = false;
@@ -115,6 +152,9 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
     update,
     dispose(): void {
       stop();
+      restoreCursor?.();
+      restoreCursor = undefined;
+      cursorEditor = undefined;
       try {
         if (mounted) ui?.setWidget(KEY, undefined);
       } catch {

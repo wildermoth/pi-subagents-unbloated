@@ -120,3 +120,28 @@ test("without a UI, updates do nothing", () => {
     live!.update();
   }).not.toThrow();
 });
+
+test("agent selection hides both editor cursor markers and restores the editor afterward", () => {
+  let active = false;
+  const original = () => ["prompt \x1b_pi:c\x07\x1b_pi:fc\x07 \x1b_pi:/fc\x07"];
+  const editor = { render: original, getText: () => "", setText: () => {} };
+  const tui = { requestRender() {}, focusedComponent: editor };
+  const ui = {
+    setWidget(_key: string, content: unknown) {
+      if (typeof content === "function") content(tui, theme);
+    },
+  } as unknown as ExtensionUIContext;
+  live = createWidget(() => [rec("running")], { selected: () => undefined, active: () => active });
+  live.bind(ui);
+  expect(editor.render()).toEqual(original());
+  active = true;
+  live.update();
+  expect(editor.render()).toEqual(["prompt  "]);
+  active = false;
+  live.update();
+  expect(editor.render).toBe(original);
+  active = true;
+  live.update();
+  live.dispose();
+  expect(editor.render).toBe(original);
+});
