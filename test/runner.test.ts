@@ -156,8 +156,8 @@ describe("flags", () => {
   });
   test("resolvePiCommand order", () => {
     expect(resolvePiCommand({ PI_BIN: "/x/pi" }, "/a/cli.js", { platform: "linux" })).toEqual({ command: "/x/pi", args: [] });
-    expect(resolvePiCommand({}, "/opt/pi-coding-agent/dist/cli.js", { platform: "linux" })).toEqual({
-      command: process.execPath,
+    expect(resolvePiCommand({}, "/opt/pi-coding-agent/dist/cli.js", { platform: "linux", execPath: "/usr/bin/node" })).toEqual({
+      command: "/usr/bin/node",
       args: ["/opt/pi-coding-agent/dist/cli.js"],
     });
     expect(resolvePiCommand({}, "/repo/foo.test.ts", { platform: "linux", resolvePackage: () => undefined })).toEqual({
@@ -366,6 +366,18 @@ describe("resolvePiCommand cross-platform", () => {
     expect(
       resolvePiCommand({ PI_BIN: "/x/pi" }, "/o/pi-coding-agent/cli.js", { platform: "linux", resolvePackage: none, execPath: NODE }),
     ).toEqual({ command: "/x/pi", args: [] });
+  });
+  test("does not mistake an unrelated cli.js or a Bun process for the Pi entry", () => {
+    const options = { platform: "linux" as const, resolvePackage: none };
+    expect(resolvePiCommand({}, "/other/cli.js", { ...options, execPath: NODE })).toEqual({ command: "pi", args: [] });
+    expect(resolvePiCommand({}, "/opt/pi-coding-agent/dist/cli.js", { ...options, execPath: "/usr/bin/bun" })).toEqual({
+      command: "pi",
+      args: [],
+    });
+    expect(resolvePiCommand({}, "/opt/pi-coding-agent/dist/cli.js", { ...options, execPath: NODE })).toEqual({
+      command: NODE,
+      args: ["/opt/pi-coding-agent/dist/cli.js"],
+    });
   });
   test("package bin.pi is used after argv1 and before PATH", () => {
     const f = fsOf({

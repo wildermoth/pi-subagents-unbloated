@@ -14,7 +14,7 @@ export interface ResolveOptions {
 }
 
 const PI_PACKAGE = "@earendil-works/pi-coding-agent";
-const isPiEntry = (p: string) => p.includes("pi-coding-agent") || /^(pi|cli)(\.[cm]?js)?$/.test(basename(p));
+const isPiEntry = (p: string) => /(?:^|[\\/])pi-coding-agent(?:[\\/]|$)/.test(p);
 
 function defaultResolvePackage(): string | undefined {
   try {
@@ -103,7 +103,7 @@ export function resolvePiCommand(
   const fromPath = (p: string) => (win ? windowsCommand(p, o) : { command: p, args: [] });
   if (env.PI_BIN) return fromPath(env.PI_BIN);
   // Only trust argv[1] when it looks like Pi's entry point (not e.g. a test runner script)
-  if (argv1 && isPiEntry(argv1)) return { command: process.execPath, args: [argv1] };
+  if (argv1 && isNode(o.execPath) && isPiEntry(argv1)) return { command: o.execPath, args: [argv1] };
   let pkgBin: string | undefined;
   try {
     pkgBin = isNode(o.execPath) ? packageBin(o, win ? win32 : posix) : undefined;
