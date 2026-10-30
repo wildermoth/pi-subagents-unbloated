@@ -67,8 +67,6 @@ const TOOLS: Record<string, [verb: string, noun: string]> = {
   find: ["searching", "pattern"],
   ls: ["listing", "dir"],
   bash: ["running", "command"],
-  web_search: ["searching the web", "query"],
-  web_fetch: ["fetching", "page"],
 };
 
 /** "editing 2 files…", or the end of what it is saying when no tool is running, or "thinking…". */

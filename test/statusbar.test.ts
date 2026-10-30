@@ -121,7 +121,7 @@ describe("activity", () => {
   test("names the tools running now, grouping repeats", () => {
     expect(activity(progress({ active: ["read"] }))).toBe("reading…");
     expect(activity(progress({ active: ["read", "grep", "read"] }))).toBe("reading 2 files, searching…");
-    expect(activity(progress({ active: ["web_search", "mystery"] }))).toBe("searching the web, using mystery…");
+    expect(activity(progress({ active: ["bash", "mystery"] }))).toBe("running, using mystery…");
   });
   test("with no tool running it shows the end of the latest line, so streaming text keeps moving", () => {
     expect(activity(progress({ text: "first line\n  Found the bug in auth.ts  \n\n" }))).toBe("Found the bug in auth.ts");
