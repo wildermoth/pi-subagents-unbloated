@@ -98,7 +98,7 @@ test("a stale UI context is swallowed, then recovered by the next bind", () => {
 test("editorFocused is true for the prompt editor or when unknown, false for a dialog", () => {
   const f = fakeUi();
   live = createWidget(() => [rec("running")]);
-  expect(live.editorFocused()).toBe(true); // nothing mounted yet: unknown counts as the editor
+  expect(live.editorFocused()).toBe(false); // no UI is bound yet
   live.bind(f.ui);
   expect(live.editorFocused()).toBe(true);
 });

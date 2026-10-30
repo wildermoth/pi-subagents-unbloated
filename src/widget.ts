@@ -23,6 +23,12 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
   let restoreCursor: (() => void) | undefined;
   let cursorEditor: unknown;
 
+  function resetCursor(): void {
+    restoreCursor?.();
+    restoreCursor = undefined;
+    cursorEditor = undefined;
+  }
+
   function syncCursor(): void {
     const editor = tui?.focusedComponent as { render?: (width: number) => string[]; getText?: unknown; setText?: unknown } | undefined;
     const hide =
@@ -32,9 +38,7 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
       typeof editor.getText === "function" &&
       typeof editor.setText === "function";
     if (hide && cursorEditor === editor) return;
-    restoreCursor?.();
-    restoreCursor = undefined;
-    cursorEditor = undefined;
+    resetCursor();
     if (!hide || !editor.render) return;
     const original = editor.render;
     const wrapped = (width: number) =>
@@ -60,12 +64,9 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
       const { shown, queued, running } = select(records());
       if (!shown.length && !queued) {
         stop();
-        restoreCursor?.();
-        restoreCursor = undefined;
-        cursorEditor = undefined;
+        resetCursor();
         if (mounted) ui.setWidget(KEY, undefined);
         mounted = false;
-        tui = undefined;
         return;
       }
       if (!mounted) {
@@ -110,9 +111,7 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
       timer.unref?.(); // an animation must never keep Pi alive
     } catch {
       // The UI context went stale (reload or session switch); the next bind() recovers.
-      restoreCursor?.();
-      restoreCursor = undefined;
-      cursorEditor = undefined;
+      resetCursor();
       ui = tui = undefined;
       mounted = false;
       stop();
@@ -124,37 +123,37 @@ export function createWidget(records: () => readonly JobRecord[], view?: WidgetV
     bind(next: ExtensionUIContext | undefined): void {
       if (next === ui) return;
       stop();
-      restoreCursor?.();
-      restoreCursor = undefined;
-      cursorEditor = undefined;
+      resetCursor();
       ui = next;
       tui = undefined;
       mounted = false;
       if (next && !fit) {
         // Pi's width helper understands ANSI and wide characters; load it once, only when there is a UI.
-        void import("@earendil-works/pi-tui").then((m) => {
-          fit = (line, width) => m.truncateToWidth(line, width);
-          measure = m.visibleWidth;
-          tui?.requestRender();
-        });
+        void import("@earendil-works/pi-tui")
+          .then((m) => {
+            fit = (line, width) => m.truncateToWidth(line, width);
+            measure = m.visibleWidth;
+            tui?.requestRender();
+          })
+          .catch(() => {
+            // Width helpers are optional, and a later bind can retry.
+          });
       }
       update();
     },
-    /** Progress arrived. While something runs the spinner tick repaints within 100ms, so only start the widget if it is not running yet. */
-    /** True when Pi's prompt editor owns the keyboard, not one of its dialogs or overlays. Unknown counts as yes. */
+    /** True when the editor owns the keyboard, not a dialog or an unbound UI. */
     editorFocused: (): boolean => {
       const focused = tui?.focusedComponent as { getText?: unknown; setText?: unknown } | null | undefined;
-      return focused == null || (typeof focused.getText === "function" && typeof focused.setText === "function");
+      return !!tui && (focused == null || (typeof focused.getText === "function" && typeof focused.setText === "function"));
     },
+    /** Progress arrives frequently; the running animation already schedules a repaint. */
     touch: (): void => {
       if (!timer) update();
     },
     update,
     dispose(): void {
       stop();
-      restoreCursor?.();
-      restoreCursor = undefined;
-      cursorEditor = undefined;
+      resetCursor();
       try {
         if (mounted) ui?.setWidget(KEY, undefined);
       } catch {

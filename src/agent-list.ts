@@ -1,7 +1,7 @@
 /** Keyboard control of the status widget: Down at an empty prompt moves a cursor onto the agents, Enter opens an action menu. */
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type { JobRecord } from "./jobs.ts";
-import { activity, elapsed, selectable, tokens } from "./statusbar.ts";
+import { activity, clip, elapsed, selectable, tokens } from "./statusbar.ts";
 
 type Keys = Pick<typeof import("@earendil-works/pi-tui"), "isKeyRelease" | "matchesKey">;
 
@@ -117,8 +117,7 @@ export function createAgentList(o: AgentListOptions) {
               { title: "Completed", jobs: records.filter((r) => r.state === "completed" || r.state === "cancelled") },
             ];
           };
-          const sync = () => {
-            const jobs = groups().flatMap((group) => group.jobs);
+          const sync = (jobs: JobRecord[]) => {
             const at = jobs.findIndex((r) => r.id === selected);
             cursor = Math.max(0, Math.min(jobs.length - 1, at >= 0 ? at : cursor));
             selected = jobs[cursor]?.id;
@@ -133,7 +132,7 @@ export function createAgentList(o: AgentListOptions) {
               ? activity(r.progress)
               : r.result?.status === "failed"
                 ? r.result.failure.message
-                : (r.result?.text ?? r.task);
+                : clip(r.result?.text ?? r.task, 120);
             const left = `${mark} ${r.agent} (${r.state})  ${summary}`.replace(/\s+/g, " ");
             const stats = `${elapsed((r.endedAt ?? Date.now()) - (r.startedAt ?? r.createdAt))} · ${tokens(r.progress?.tokens ?? 0)} tokens`;
             const right = truncateToWidth(stats, width);
@@ -143,26 +142,31 @@ export function createAgentList(o: AgentListOptions) {
           };
           return {
             render(width) {
-              sync();
-              const entries: { text: string; id?: string; heading?: string }[] = [];
-              for (const group of groups()) {
+              const grouped = groups();
+              sync(grouped.flatMap((group) => group.jobs));
+              const entries: { job?: JobRecord; heading?: string }[] = [];
+              for (const group of grouped) {
                 if (!group.jobs.length) continue;
-                entries.push({ text: theme.fg("accent", group.title), heading: group.title });
+                entries.push({ heading: group.title });
                 for (const r of group.jobs) {
-                  entries.push({ text: renderRow(r, width), id: r.id });
+                  entries.push({ job: r });
                 }
               }
               // Reserve title, current section heading and key hints. Keep the cursor inside the viewport.
               const height = Math.max(1, tui.terminal?.rows ?? 24);
               const capacity = Math.max(1, height - 7);
-              const at = entries.findIndex((entry) => entry.id === selected);
+              const at = entries.findIndex((entry) => entry.job?.id === selected);
               if (at < scroll) scroll = Math.max(0, at);
               if (at >= scroll + capacity) scroll = at - capacity + 1;
               scroll = Math.min(scroll, Math.max(0, entries.length - capacity));
               const section = entries.slice(0, scroll + 1).findLast((entry) => entry.heading)?.heading;
               const lines = [theme.bold("Agents"), theme.fg("dim", "Conversation in background · right or esc returns"), ""];
               if (scroll > 0 && section && !entries[scroll]?.heading) lines.push(theme.fg("accent", section));
-              lines.push(...entries.slice(scroll, scroll + capacity).map((entry) => entry.text));
+              lines.push(
+                ...entries
+                  .slice(scroll, scroll + capacity)
+                  .map((entry) => (entry.job ? renderRow(entry.job, width) : theme.fg("accent", entry.heading!))),
+              );
               if (!entries.length) lines.push(theme.fg("dim", "No agents in this session"));
               while (lines.length < height - 1) lines.push("");
               lines.push(theme.fg("dim", "↑↓ select · enter actions · →/esc return"));
@@ -173,7 +177,7 @@ export function createAgentList(o: AgentListOptions) {
             },
             handleInput(data) {
               if (k.isKeyRelease(data)) return;
-              const jobs = sync();
+              const jobs = sync(groups().flatMap((group) => group.jobs));
               if (k.matchesKey(data, "escape") || k.matchesKey(data, "right")) done(undefined);
               else if (k.matchesKey(data, "enter")) done(jobs[cursor]);
               else if (k.matchesKey(data, "up") || k.matchesKey(data, "down")) {
@@ -220,7 +224,7 @@ export function createAgentList(o: AgentListOptions) {
       close(); // consumed: Esc must close the list, not cancel Pi's turn
     } else if (k.matchesKey(data, "enter")) {
       const job = rows()[index];
-      if (job) void openActions(job);
+      if (job) void openActions(job).catch((error: unknown) => ui?.notify(error instanceof Error ? error.message : String(error), "error"));
       else close();
     } else {
       close();

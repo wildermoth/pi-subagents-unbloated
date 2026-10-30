@@ -348,3 +348,29 @@ test("manager fills the screen and Right returns to chat", async () => {
   await flush();
   expect(t.manager()).toBeUndefined();
 });
+
+test("a rejected action menu is reported without an unhandled rejection", async () => {
+  let handler: ((data: string) => unknown) | undefined;
+  const notes: string[] = [];
+  const list = createAgentList({
+    records: () => [job("1", "running")],
+    redraw() {},
+    editorFocused: () => true,
+    steer: async () => {},
+    cancel: async () => {},
+    configure: async () => {},
+  });
+  await list.bind({
+    onTerminalInput: (h: typeof handler) => ((handler = h), () => {}),
+    getEditorText: () => "",
+    select: async () => {
+      throw new Error("menu unavailable");
+    },
+    notify: (message: string) => void notes.push(message),
+  } as unknown as ExtensionUIContext);
+  handler!(DOWN);
+  handler!(ENTER);
+  await flush();
+  expect(notes).toEqual(["menu unavailable"]);
+  list.dispose();
+});
